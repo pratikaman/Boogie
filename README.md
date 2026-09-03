@@ -25,7 +25,8 @@ bounce a frame late, because physics is hot.
 - **Click her.** She jumps and throws hearts at you. Needy? A little. Aren't we all.
 - **Drag her.** She'll go anywhere. Your second monitor. The corner of your
   spreadsheet. Directly on top of your manager's face in Zoom.
-- **Right-click her** for the menu. She takes requests.
+- **Right-click her** (or hit the `🕺` in the menu bar) for the club panel: neon
+  marquee, a live stage preview, and every dial she has. She takes requests.
 - **Tempo** runs from Chill (92 BPM, a slow Tuesday) to Rave (172 BPM, a poor decision).
 - **Fit:** six outfits. **Skin:** five tones. She's not picky, and neither should you be.
 - **Squad:** bring a duo or a trio. Odd-numbered dancers mirror the moves, so it
@@ -78,6 +79,10 @@ you picked, so she stays crisp at any scale. Size queen friendly.
 She lives in a borderless, non-activating `NSPanel` at status-bar level, so she
 floats above your windows and the Dock and follows you across every Space.
 Clicks on transparent pixels fall through to whatever's underneath.
+
+The control panel is SwiftUI in an `NSPopover`: black-light purple, neon pink
+and cyan, chasing cabaret bulbs, and a synthwave floor under a live preview
+rendered from the same sprite code, in sync with the dancer on your Dock.
 
 The app icon and the GIF above are rendered from the same sprite code by
 `tools/main.swift`, so there's a single source of truth for how she looks.

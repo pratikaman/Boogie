@@ -1,13 +1,15 @@
 import AppKit
+import SwiftUI
 import ServiceManagement
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, PanelActions {
     private var statusItem: NSStatusItem!
-    private let menu = NSMenu()
     private let settings = Settings.shared
     private var choreo: Choreographer!
     private var windows: [DancerWindow] = []
     private var timer: Timer?
+    private let model = PanelModel()
+    private let popover = NSPopover()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         choreo = Choreographer(bpm: settings.bpm, lockedMoveId: settings.moveId == "shuffle" ? nil : settings.moveId)
@@ -19,9 +21,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             image?.isTemplate = true
             button.image = image
             button.toolTip = "Boogie"
+            button.target = self
+            button.action = #selector(togglePanel)
         }
-        menu.delegate = self
-        statusItem.menu = menu
+
+        model.actions = self
+        model.choreo = choreo
+        let hosting = NSHostingController(rootView: PanelView(model: model))
+        hosting.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hosting
+        popover.behavior = .transient
+        popover.animates = true
+        popover.appearance = NSAppearance(named: .darkAqua)
+        popover.delegate = self
 
         rebuildDancers()
 
@@ -33,6 +45,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
 
+    // MARK: Panel
+
+    @objc private func togglePanel() {
+        if popover.isShown {
+            popover.performClose(nil)
+        } else if let button = statusItem.button {
+            showPanel(relativeTo: button, edge: .minY)
+        }
+    }
+
+    private func showPanel(relativeTo view: NSView, edge: NSRectEdge) {
+        model.refresh(from: settings, loginEnabled: SMAppService.mainApp.status == .enabled)
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: view.bounds, of: view, preferredEdge: edge)
+    }
+
+    func popoverWillShow(_ notification: Notification) { model.startPreview() }
+    func popoverDidClose(_ notification: Notification) { model.stopPreview() }
+
     // MARK: Dancers
 
     private func rebuildDancers() {
@@ -40,9 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         windows = (0..<settings.squad).map { i in
             let w = DancerWindow(index: i, renderer: renderer(for: i), scale: settings.scale)
             w.dancer.onClick = { [weak w] in w?.dancer.celebrate() }
-            w.dancer.onRightClick = { [weak self] _ in
-                guard let self else { return }
-                self.menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            w.dancer.onRightClick = { [weak self, weak w] _ in
+                guard let self, let w else { return }
+                if self.popover.isShown { self.popover.performClose(nil) }
+                self.showPanel(relativeTo: w.dancer, edge: .maxY)
             }
             w.dancer.onDragEnd = { [weak self] origin in self?.settings.setPosition(i, origin) }
             return w
@@ -65,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             w.dancer.renderer.fit = r.fit
             w.dancer.renderer.skin = r.skin
         }
+        model.refresh(from: settings, loginEnabled: model.loginEnabled)
     }
 
     /// Docked dancers stand on the Dock (or the bottom screen edge), centred.
@@ -97,128 +130,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func screensChanged() { layout() }
 
-    // MARK: Menu
+    // MARK: PanelActions
 
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-
-        let status = NSMenuItem(title: "Now: \(choreo.currentMoveName) · \(settings.bpm) BPM", action: nil, keyEquivalent: "")
-        status.isEnabled = false
-        menu.addItem(status)
-        menu.addItem(item(settings.paused ? "Dance!" : "Take five", #selector(togglePause)))
-        menu.addItem(.separator())
-
-        menu.addItem(submenu("Move", selected: settings.moveId, #selector(pickMove),
-                             [("Shuffle", "shuffle")] + Moves.all.map { ($0.name, $0.id) }))
-        menu.addItem(submenu("Tempo", selected: settings.bpm, #selector(pickTempo),
-                             [("Chill · 92", 92), ("Groove · 118", 118), ("Hype · 140", 140), ("Rave · 172", 172)]))
-        menu.addItem(submenu("Size", selected: settings.scale, #selector(pickSize),
-                             [("Small", 3), ("Medium", 5), ("Large", 7), ("Huge", 9)]))
-        menu.addItem(submenu("Fit", selected: settings.fitId, #selector(pickFit), Wardrobe.fits.map { ($0.name, $0.id) }))
-        menu.addItem(submenu("Skin", selected: settings.skinId, #selector(pickSkin), Wardrobe.skins.map { ($0.name, $0.id) }))
-        menu.addItem(submenu("Squad", selected: settings.squad, #selector(pickSquad),
-                             [("Solo", 1), ("Duo", 2), ("Trio", 3)]))
-        menu.addItem(.separator())
-
-        menu.addItem(item("Snap to Dock", #selector(snapToDock)))
-        menu.addItem(item(settings.hidden ? "Show" : "Hide", #selector(toggleHidden)))
-        let login = item("Launch at login", #selector(toggleLogin))
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(login)
-        menu.addItem(.separator())
-
-        let hint = NSMenuItem(title: "Click her for hearts. Drag her anywhere.", action: nil, keyEquivalent: "")
-        hint.isEnabled = false
-        menu.addItem(hint)
-        menu.addItem(item("Quit Boogie", #selector(NSApplication.terminate(_:)), key: "q"))
+    func setPaused(_ paused: Bool) {
+        settings.paused = paused
+        choreo.paused = paused
     }
 
-    private func item(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
-        let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        i.target = self
-        return i
-    }
-
-    private func submenu<T: Equatable>(_ title: String, selected: T, _ action: Selector, _ options: [(String, T)]) -> NSMenuItem {
-        let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        let sub = NSMenu(title: title)
-        for (name, value) in options {
-            let i = item(name, action)
-            i.representedObject = value
-            i.state = value == selected ? .on : .off
-            sub.addItem(i)
-        }
-        parent.submenu = sub
-        return parent
-    }
-
-    // MARK: Actions
-
-    @objc private func togglePause() {
-        settings.paused.toggle()
-        choreo.paused = settings.paused
-    }
-
-    @objc private func pickMove(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        settings.moveId = id
-        choreo.lockedMoveId = id == "shuffle" ? nil : id
-    }
-
-    @objc private func pickTempo(_ sender: NSMenuItem) {
-        guard let bpm = sender.representedObject as? Int else { return }
-        settings.bpm = bpm
-        choreo.setBPM(bpm)
-    }
-
-    @objc private func pickSize(_ sender: NSMenuItem) {
-        guard let scale = sender.representedObject as? Int else { return }
-        settings.scale = scale
-        rebuildDancers()
-    }
-
-    @objc private func pickFit(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        settings.fitId = id
-        applyWardrobe()
-    }
-
-    @objc private func pickSkin(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        settings.skinId = id
-        applyWardrobe()
-    }
-
-    @objc private func pickSquad(_ sender: NSMenuItem) {
-        guard let n = sender.representedObject as? Int else { return }
-        settings.squad = n
-        settings.clearPositions()
-        rebuildDancers()
-    }
-
-    @objc private func snapToDock() {
-        settings.clearPositions()
-        layout()
-    }
-
-    @objc private func toggleHidden() {
-        settings.hidden.toggle()
-        if settings.hidden {
+    func setHidden(_ hidden: Bool) {
+        settings.hidden = hidden
+        if hidden {
             windows.forEach { $0.orderOut(nil) }
         } else {
             windows.forEach { $0.orderFrontRegardless() }
         }
     }
 
-    @objc private func toggleLogin() {
+    func setBPM(_ bpm: Int) {
+        settings.bpm = bpm
+        choreo.setBPM(bpm)
+    }
+
+    func setScale(_ scale: Int) {
+        settings.scale = scale
+        rebuildDancers()
+    }
+
+    func setFit(_ id: String) {
+        settings.fitId = id
+        applyWardrobe()
+    }
+
+    func setSkin(_ id: String) {
+        settings.skinId = id
+        applyWardrobe()
+    }
+
+    func setMove(_ id: String) {
+        settings.moveId = id
+        choreo.lockedMoveId = id == "shuffle" ? nil : id
+    }
+
+    func setSquad(_ n: Int) {
+        settings.squad = n
+        settings.clearPositions()
+        rebuildDancers()
+    }
+
+    func setLogin(_ enabled: Bool) {
         let service = SMAppService.mainApp
         do {
-            if service.status == .enabled { try service.unregister() } else { try service.register() }
+            if enabled { try service.register() } else { try service.unregister() }
         } catch {
             let alert = NSAlert()
             alert.messageText = "Couldn't change the login item"
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }
+        model.loginEnabled = service.status == .enabled
+    }
+
+    func snapToDock() {
+        settings.clearPositions()
+        layout()
+    }
+
+    func quit() {
+        NSApp.terminate(nil)
     }
 }
