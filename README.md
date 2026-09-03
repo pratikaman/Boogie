@@ -12,9 +12,7 @@
 In 1998 an app called VirtuaGirl put a stripper on your Windows taskbar, and a
 generation of teenagers learned what "minimise all windows" was for.
 
-This is the Mac version. Twenty-eight years later, considerably more pixelated,
-and she keeps her clothes on. Mostly because I couldn't draw them coming off at
-36 pixels tall. Mostly.
+This is the Mac version. Twenty-eight years later, considerably more pixelated.
 
 ## What she does
 
