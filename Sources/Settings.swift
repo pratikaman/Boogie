@@ -41,6 +41,29 @@ final class Settings {
         set { d.set(newValue, forKey: "squad") }
     }
 
+    // Sensor crossovers.
+    var surf: Bool {
+        get { d.object(forKey: "surf") == nil ? true : d.bool(forKey: "surf") }
+        set { d.set(newValue, forKey: "surf") }
+    }
+    var duck: Bool {
+        get { d.object(forKey: "duck") == nil ? true : d.bool(forKey: "duck") }
+        set { d.set(newValue, forKey: "duck") }
+    }
+    /// auto | on | off
+    var lightsMode: String {
+        get { d.string(forKey: "lights") ?? "auto" }
+        set { d.set(newValue, forKey: "lights") }
+    }
+    var tiltAxis: Int {
+        get { d.integer(forKey: "tiltAxis") }
+        set { d.set(newValue, forKey: "tiltAxis") }
+    }
+    var tiltSign: Double {
+        get { d.object(forKey: "tiltSign") == nil ? 1 : d.double(forKey: "tiltSign") }
+        set { d.set(newValue, forKey: "tiltSign") }
+    }
+
     /// Where the user dragged dancer `i` (window origin), if they moved it off the Dock.
     func position(_ i: Int) -> CGPoint? {
         guard let s = d.string(forKey: "pos.\(i)") else { return nil }

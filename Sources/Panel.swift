@@ -45,6 +45,14 @@ protocol PanelActions: AnyObject {
     func setLogin(_ enabled: Bool)
     func snapToDock()
     func quit()
+    func setSurf(_ on: Bool)
+    func setDuck(_ on: Bool)
+    func setLightsMode(_ mode: String)
+    func rezeroTilt()
+    func calibrateTilt() -> Bool
+    func sensorReadout() -> SensorReadout
+    func ambienceNow() -> Ambience
+    func sensorAvailability() -> (accel: Bool, lid: Bool, light: Bool)
 }
 
 // MARK: - Model
@@ -61,6 +69,24 @@ final class PanelModel: ObservableObject {
     @Published var loginEnabled = false
     @Published var moveName = ""
     @Published var preview: CGImage?
+
+    // Sensors
+    @Published var tilt: Double?
+    @Published var lid: Double?
+    @Published var lux: Double?
+    @Published var surf = true
+    @Published var duck = true
+    @Published var lightsMode = "auto"
+    @Published var lights = false
+    @Published var surfing = false
+    @Published var ducking = 0
+    @Published var hasAccel = false
+    @Published var hasLid = false
+    @Published var hasLight = false
+    @Published var calibStep = 0
+    @Published var calibMessage = ""
+    /// Offscreen render: AppKit-backed controls can't be drawn, so fake them.
+    var staticRender = false
 
     weak var actions: PanelActions?
     weak var choreo: Choreographer?
@@ -81,6 +107,39 @@ final class PanelModel: ObservableObject {
         renderer.fit = Wardrobe.fit(s.fitId)
         renderer.skin = Wardrobe.skin(s.skinId)
         moveName = choreo?.currentMoveName ?? ""
+        surf = s.surf
+        duck = s.duck
+        lightsMode = s.lightsMode
+        if let a = actions?.sensorAvailability() { hasAccel = a.accel; hasLid = a.lid; hasLight = a.light }
+        calibStep = 0
+        calibMessage = ""
+    }
+
+    /// A populated model for offscreen rendering.
+    static func sample() -> PanelModel {
+        let m = PanelModel()
+        m.bpm = 118; m.moveName = "Disco"; m.tilt = 0.12; m.lid = 112; m.lux = 3
+        m.hasAccel = true; m.hasLid = true; m.hasLight = true
+        m.lights = true; m.surfing = true
+        var canvas = PixelCanvas()
+        m.renderer.draw(Moves.disco.pose(MoveContext(beat: 0.1)), bunLag: 0, hearts: [], into: &canvas,
+                        fx: StageFX(lights: true, beat: 0.1))
+        m.preview = canvas.cgImage()
+        m.staticRender = true
+        return m
+    }
+
+    func calibrateTapped() {
+        if calibStep == 0 {
+            actions?.rezeroTilt()
+            calibStep = 1
+            calibMessage = "Flat for a second, then tilt the RIGHT edge down and tap again."
+        } else if actions?.calibrateTilt() == true {
+            calibStep = 0
+            calibMessage = "Calibrated. Tilt away."
+        } else {
+            calibMessage = "Not enough tilt yet. Right edge down, then tap again."
+        }
     }
 
     func startPreview() {
@@ -104,8 +163,16 @@ final class PanelModel: ObservableObject {
         let (pm, pb) = choreo.current(now: now - 0.08)
         let prev = pm.pose(MoveContext(beat: pb))
         pose.eyesClosed = Int(now * 10) % 40 == 0
+        if let r = actions?.sensorReadout() { tilt = r.tilt; lid = r.lid; lux = r.lux }
+        if let a = actions?.ambienceNow() {
+            lights = a.lights
+            surfing = a.surfDir != 0
+            ducking = a.duck
+            if a.duck > 0 { pose = Moves.duck(stage: a.duck) } else if a.surfDir != 0 { pose = Moves.surf(dir: a.surfDir) }
+        }
         canvas.clear()
-        renderer.draw(pose, bunLag: (prev.dy + prev.headDy) - (pose.dy + pose.headDy), hearts: [], into: &canvas)
+        renderer.draw(pose, bunLag: (prev.dy + prev.headDy) - (pose.dy + pose.headDy), hearts: [], into: &canvas,
+                      fx: StageFX(lights: lights, beat: beat))
         preview = canvas.cgImage()
         moveName = choreo.currentMoveName
     }
@@ -187,6 +254,7 @@ struct PanelView: View {
                 }
             }
 
+            sensorsSection
             footer
         }
         .padding(14)
@@ -292,18 +360,66 @@ struct PanelView: View {
         }
     }
 
+    private var sensorsSection: some View {
+        section("SENSORS") {
+            HStack(spacing: 6) {
+                SensorCard(title: "TILT",
+                           value: model.hasAccel ? (model.tilt.map { String(format: "%+.2f g", $0) } ?? "zeroing") : "none",
+                           state: !model.hasAccel ? "no sensor" : (!model.surf ? "surf off" : (model.surfing ? "surfing!" : "surf on")),
+                           active: model.surfing, enabled: model.hasAccel) {
+                    model.surf.toggle(); model.actions?.setSurf(model.surf)
+                }
+                SensorCard(title: "LID",
+                           value: model.hasLid ? (model.lid.map { "\(Int($0))°" } ?? "…") : "none",
+                           state: !model.hasLid ? "no sensor" : (!model.duck ? "duck off" : (model.ducking > 0 ? "ducking!" : "duck on")),
+                           active: model.ducking > 0, enabled: model.hasLid) {
+                    model.duck.toggle(); model.actions?.setDuck(model.duck)
+                }
+                SensorCard(title: "LUX",
+                           value: model.hasLight ? (model.lux.map { "\(Int($0))" } ?? "…") : "none",
+                           state: !model.hasLight && model.lightsMode == "auto" ? "no sensor"
+                                : (model.lightsMode == "auto" ? (model.lights ? "dark · lit" : "auto") : (model.lightsMode == "on" ? "always on" : "off")),
+                           active: model.lights, enabled: true) {
+                    let next = ["auto": "on", "on": "off", "off": "auto"][model.lightsMode] ?? "auto"
+                    model.lightsMode = next; model.actions?.setLightsMode(next)
+                }
+            }
+            HStack(spacing: 6) {
+                Chip(title: "Re-zero tilt", selected: false, color: Club.cyan) {
+                    model.actions?.rezeroTilt(); model.calibMessage = "Level reset."
+                }
+                Chip(title: model.calibStep == 0 ? "Calibrate tilt" : "Tilt right & tap", selected: model.calibStep != 0, color: Club.cyan) {
+                    model.calibrateTapped()
+                }
+            }
+            Text(model.calibMessage.isEmpty ? "tilt = she surfs · lid down = she ducks · dark = lights on" : model.calibMessage)
+                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .foregroundColor(Club.faint)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private var footer: some View {
         HStack(spacing: 10) {
-            Toggle(isOn: Binding(get: { model.loginEnabled },
-                                 set: { model.actions?.setLogin($0); model.loginEnabled = $0 })) {
+            if model.staticRender {
                 Text("Launch at login")
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundColor(Club.dim)
-                    .fixedSize()
+                Capsule().fill(Color.white.opacity(0.12)).frame(width: 26, height: 15)
+                    .overlay(Circle().fill(Color.white.opacity(0.9)).frame(width: 11, height: 11).offset(x: -5))
+            } else {
+                Toggle(isOn: Binding(get: { model.loginEnabled },
+                                     set: { model.actions?.setLogin($0); model.loginEnabled = $0 })) {
+                    Text("Launch at login")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundColor(Club.dim)
+                        .fixedSize()
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .tint(Club.pink)
             }
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .tint(Club.pink)
             Spacer()
             Text("tap = hearts · drag = move")
                 .font(.system(size: 9, weight: .medium, design: .rounded))
@@ -435,6 +551,41 @@ private struct Swatch: View {
             .shadow(color: selected ? Club.pink.opacity(0.7) : .clear, radius: 6)
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Live sensor readout; tapping toggles that crossover.
+private struct SensorCard: View {
+    let title: String
+    let value: String
+    let state: String
+    let active: Bool
+    let enabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(2)
+                    .foregroundColor(Club.faint)
+                Text(value)
+                    .font(.system(size: 14, weight: .black, design: .rounded)).monospacedDigit()
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .foregroundColor(!enabled ? Club.faint : (active ? Club.pink : .white))
+                Text(state)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .foregroundColor(active ? Club.pink : Club.dim)
+            }
+            .padding(9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Club.card))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(active ? Club.pink.opacity(0.8) : Club.stroke))
+            .shadow(color: active ? Club.pink.opacity(0.35) : .clear, radius: 8)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 }
 

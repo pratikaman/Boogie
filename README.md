@@ -33,6 +33,25 @@ bounce a frame late, because physics is hot.
   looks choreographed rather than like three strangers who just met on the Dock.
 - **Take five** when HR walks past. **Hide** when they walk back.
 
+## She knows what you're doing with that laptop
+
+MacBooks have sensors nobody uses. She uses them.
+
+- **Tilt it** and she surfs. Lift the right edge and she slides right along
+  the Dock, arms out, until she hits the screen edge and bounces. Set it back
+  down and she stops wherever she landed. Physics, not animation.
+- **Close the lid on her** and she ducks. Below 85° she braces, below 60° she
+  crouches, below 40° she's flat on the floor with her arms out. Open it back
+  up and she pops up throwing hearts, because she thought that was it.
+- **Turn the lights off** and the club opens: a mirror ball drops in, a spotlight
+  sweeps through pink, cyan, violet and lime on every beat, the floor glows,
+  and she's holding glow sticks.
+
+Each one has a live readout in the panel (tilt in g, hinge angle, lux), taps
+on and off, and the lights have an always-on mode for daylight raving. If she
+slides the wrong way, **Calibrate tilt** fixes it in two taps: level, tilt right, done.
+All three come off the built-in sensors with no permissions at all.
+
 ## What she doesn't do
 
 - **Ask for permissions.** No Accessibility, no Screen Recording, no location.
@@ -41,6 +60,10 @@ bounce a frame late, because physics is hot.
   your Dock stays on your Dock.
 - **Show up in ⌘-Tab.** She's discreet.
 - **Use your CPU.** A sliver at 30 fps. She's mostly just standing there looking good.
+
+<p align="center">
+  <img src="assets/panel.png" width="320" alt="The Boogie control panel: neon club theme with live stage, pickers and sensor readouts">
+</p>
 
 <p align="center">
   <img src="assets/sheet.png" width="720" alt="Sprite sheet: every move, every fit">
@@ -83,6 +106,15 @@ Clicks on transparent pixels fall through to whatever's underneath.
 The control panel is SwiftUI in an `NSPopover`: black-light purple, neon pink
 and cyan, chasing cabaret bulbs, and a synthwave floor under a live preview
 rendered from the same sprite code, in sync with the dancer on your Dock.
+
+The sensors are the fun part. The accelerometer only talks through the private
+`IOHIDEventSystemClient` interface (a rate-controlled client with an event
+callback, see `Sources/Private.h`); the hinge angle is a HID feature report on
+the lid sensor; the ambient light sensor answers `IOHIDServiceClientCopyEvent`.
+`Sources/Sensors.swift` wraps all three, `Sources/Crossover.swift` turns them
+into behaviour, and any of them missing just switches that trick off. Run with
+`BOOGIE_FAKE_TILT`, `BOOGIE_FAKE_LID` or `BOOGIE_FAKE_LUX` set to try it on a
+desk without moving anything, and `BOOGIE_DEBUG_SENSORS=1` to log readings.
 
 The app icon and the GIF above are rendered from the same sprite code by
 `tools/main.swift`, so there's a single source of truth for how she looks.

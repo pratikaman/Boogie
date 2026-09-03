@@ -10,10 +10,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     private var timer: Timer?
     private let model = PanelModel()
     private let popover = NSPopover()
+    private let sensors = Sensors()
+    private let crossover = Crossover()
+    private var lastReadout = SensorReadout()
+    private var lastAmbience = Ambience()
+    private var wasSurfing = false
+    private static let debugSensors = ProcessInfo.processInfo.environment["BOOGIE_DEBUG_SENSORS"] != nil
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         choreo = Choreographer(bpm: settings.bpm, lockedMoveId: settings.moveId == "shuffle" ? nil : settings.moveId)
         choreo.paused = settings.paused
+        crossover.surfEnabled = settings.surf
+        crossover.duckEnabled = settings.duck
+        crossover.lightsMode = settings.lightsMode
+        sensors.axis = settings.tiltAxis
+        sensors.sign = settings.tiltSign
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
@@ -123,9 +134,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     }
 
     private func tick() {
-        guard !settings.hidden else { return }
         let now = Date().timeIntervalSinceReferenceDate
-        for w in windows { w.dancer.tick(now: now, choreo: choreo) }
+        lastReadout = sensors.read(now: now)
+        let amb = crossover.update(now: now, readout: lastReadout)
+        lastAmbience = amb
+        if Self.debugSensors, Int(now * 30) % 30 == 0 {
+            let r = lastReadout
+            FileHandle.standardError.write("sensors tilt=\(r.tilt.map { String(format: "%+.3f", $0) } ?? "nil") raw=\(sensors.rawDescription) lid=\(r.lid.map { String(Int($0)) } ?? "nil") lux=\(r.lux.map { String(Int($0)) } ?? "nil") surf=\(amb.surfDir) dx=\(String(format: "%.1f", amb.slideDx)) duck=\(amb.duck) lights=\(amb.lights)\n".data(using: .utf8)!)
+        }
+        guard !settings.hidden else { return }
+        if amb.slideDx != 0 { slide(by: amb.slideDx) }
+        if wasSurfing && !crossover.surfing {
+            // She stopped somewhere new; remember it so she stays there.
+            for (i, w) in windows.enumerated() { settings.setPosition(i, w.frame.origin) }
+        }
+        wasSurfing = crossover.surfing
+        for w in windows {
+            if amb.celebrate { w.dancer.celebrate() }
+            w.dancer.tick(now: now, choreo: choreo, ambience: amb)
+        }
+    }
+
+    /// Move every dancer sideways, bouncing off the screen edges.
+    private func slide(by dx: CGFloat) {
+        var hitEdge = false
+        for w in windows {
+            guard let screen = w.screen ?? NSScreen.screens.first else { continue }
+            let vf = screen.visibleFrame
+            var origin = w.frame.origin
+            origin.x += dx
+            let minX = vf.minX, maxX = vf.maxX - w.frame.width
+            if origin.x < minX { origin.x = minX; hitEdge = true }
+            if origin.x > maxX { origin.x = maxX; hitEdge = true }
+            w.setFrameOrigin(origin)
+        }
+        if hitEdge { crossover.bounce() }
     }
 
     @objc private func screensChanged() { layout() }
@@ -197,5 +240,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
 
     func quit() {
         NSApp.terminate(nil)
+    }
+
+    // MARK: Sensor crossovers
+
+    func setSurf(_ on: Bool) {
+        settings.surf = on
+        crossover.surfEnabled = on
+    }
+
+    func setDuck(_ on: Bool) {
+        settings.duck = on
+        crossover.duckEnabled = on
+    }
+
+    func setLightsMode(_ mode: String) {
+        settings.lightsMode = mode
+        crossover.lightsMode = mode
+    }
+
+    func rezeroTilt() {
+        sensors.rezero()
+    }
+
+    /// Call while the right edge of the MacBook is tilted down: picks the
+    /// accelerometer axis and sign that mean "slide right".
+    func calibrateTilt() -> Bool {
+        guard let d = sensors.delta() else { return false }
+        let candidates = [(0, d.x), (1, d.y)]
+        guard let best = candidates.max(by: { abs($0.1) < abs($1.1) }), abs(best.1) > 0.08 else { return false }
+        sensors.axis = best.0
+        sensors.sign = best.1 > 0 ? 1 : -1
+        settings.tiltAxis = sensors.axis
+        settings.tiltSign = sensors.sign
+        return true
+    }
+
+    func sensorReadout() -> SensorReadout { lastReadout }
+    func ambienceNow() -> Ambience { lastAmbience }
+    func sensorAvailability() -> (accel: Bool, lid: Bool, light: Bool) {
+        (sensors.hasAccel, sensors.hasLid, sensors.hasLight)
     }
 }

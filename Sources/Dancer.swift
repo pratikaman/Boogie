@@ -64,11 +64,11 @@ final class DancerView: NSView {
 
     // MARK: Animation
 
-    func tick(now: TimeInterval, choreo: Choreographer) {
+    func tick(now: TimeInterval, choreo: Choreographer, ambience: Ambience = Ambience()) {
         if let s = specialStart, now - s >= 0.9 { specialStart = nil }
 
-        var pose = fullPose(at: now, choreo)
-        let prev = fullPose(at: now - 0.08, choreo)
+        var pose = fullPose(at: now, choreo, ambience)
+        let prev = fullPose(at: now - 0.08, choreo, ambience)
         let bunLag = (prev.dy + prev.headDy) - (pose.dy + pose.headDy)
 
         // Blink every few seconds.
@@ -92,18 +92,21 @@ final class DancerView: NSView {
         }
 
         canvas.clear()
-        renderer.draw(pose, bunLag: bunLag, hearts: hearts, into: &canvas)
+        renderer.draw(pose, bunLag: bunLag, hearts: hearts, into: &canvas,
+                      fx: StageFX(lights: ambience.lights, beat: choreo.beat(now: now)))
         layer?.contents = canvas.cgImage()
     }
 
-    private func fullPose(at t: TimeInterval, _ choreo: Choreographer) -> Pose {
-        var p: Pose
+    /// Priority: a click celebration, then the lid, then a tilt, then the dance.
+    private func fullPose(at t: TimeInterval, _ choreo: Choreographer, _ amb: Ambience) -> Pose {
         if let s = specialStart, t - s < 0.9 {
-            p = Self.specialPose(t - s)
-        } else {
-            let (move, beat) = choreo.current(now: t)
-            p = move.pose(MoveContext(beat: beat))
+            let p = Self.specialPose(t - s)
+            return mirrored ? p.mirrored() : p
         }
+        if amb.duck > 0 { return Moves.duck(stage: amb.duck) }
+        if amb.surfDir != 0 { return Moves.surf(dir: amb.surfDir) }
+        let (move, beat) = choreo.current(now: t)
+        let p = move.pose(MoveContext(beat: beat))
         return mirrored ? p.mirrored() : p
     }
 

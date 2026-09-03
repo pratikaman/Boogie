@@ -18,10 +18,29 @@ func context(w: Int, h: Int) -> CGContext {
     return ctx
 }
 
-func frame(_ renderer: SpriteRenderer, _ pose: Pose, bunLag: Int = 0, hearts: [Heart] = []) -> CGImage {
+func frame(_ renderer: SpriteRenderer, _ pose: Pose, bunLag: Int = 0, hearts: [Heart] = [], fx: StageFX = .none) -> CGImage {
     var canvas = PixelCanvas()
-    renderer.draw(pose, bunLag: bunLag, hearts: hearts, into: &canvas)
+    renderer.draw(pose, bunLag: bunLag, hearts: hearts, into: &canvas, fx: fx)
     return canvas.cgImage()!
+}
+
+// Sensor crossover frames: surf left/right, the three duck stages, club lights.
+func fxSheet() {
+    let scale = 5
+    let renderer = SpriteRenderer(fit: Wardrobe.fits[0], skin: Wardrobe.skins[1])
+    var frames: [(Pose, StageFX)] = [(Moves.surf(dir: -1), .none), (Moves.surf(dir: 1), .none)]
+    for stage in 1...3 { frames.append((Moves.duck(stage: stage), .none)) }
+    for i in 0..<4 {
+        let b = Double(i) * 0.5 + 0.1
+        frames.append((Moves.bop.pose(MoveContext(beat: b)), StageFX(lights: true, beat: b)))
+    }
+    let ctx = context(w: frames.count * S * scale, h: S * scale)
+    ctx.setFillColor(bg)
+    ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
+    for (i, f) in frames.enumerated() {
+        ctx.draw(frame(renderer, f.0, fx: f.1), in: CGRect(x: i * S * scale, y: 0, width: S * scale, height: S * scale))
+    }
+    write(ctx.makeImage()!, "fx.png")
 }
 
 func write(_ img: CGImage, _ name: String) {
@@ -111,6 +130,7 @@ func gif() {
 }
 
 switch what {
+case "fx": fxSheet()
 case "sheet": sheet()
 case "icon": icon()
 case "gif": gif()

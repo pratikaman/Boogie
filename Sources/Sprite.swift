@@ -265,6 +265,35 @@ enum Moves {
         return p
     }
 
+    /// Sliding along the Dock because the MacBook is tilted. `dir` is absolute (screen left/right).
+    static func surf(dir: Int) -> Pose {
+        var p = Pose()
+        p.dy = 1
+        p.lArm = .pointUpOut
+        p.rArm = .tpose
+        p.lLeg = Leg(dx: -3); p.rLeg = Leg(dx: -3)
+        p.headDx = -1
+        return dir > 0 ? p.mirrored() : p
+    }
+
+    /// The lid is coming down: brace, crouch, flatten.
+    static func duck(stage: Int) -> Pose {
+        var p = Pose()
+        switch stage {
+        case 1:
+            p.lArm = .roofHigh; p.rArm = .roofHigh
+            p.headDy = -1
+        case 2:
+            p.dy = 2
+            p.lArm = .roofLow; p.rArm = .roofLow
+        default:
+            p.dy = 3
+            p.lArm = .tpose; p.rArm = .tpose
+            p.lLeg = Leg(dx: -2); p.rLeg = Leg(dx: -2)
+        }
+        return p
+    }
+
     static let all: [Move] = [bop, roof, sway, disco, robot, runningMan, twist, pogo, stepTouch, wave, headbang]
 
     static func named(_ id: String) -> Move? { all.first { $0.id == id } }
@@ -350,6 +379,13 @@ struct Heart {
     var color: UInt32
 }
 
+/// Club lights state passed to the renderer.
+struct StageFX {
+    var lights = false
+    var beat: Double = 0
+    static let none = StageFX()
+}
+
 // MARK: - Renderer
 
 /// Draws the dancer into a PixelCanvas. The body is a hand-drawn bitmap, the
@@ -422,9 +458,11 @@ final class SpriteRenderer {
         }
     }
 
-    func draw(_ p: Pose, bunLag: Int, hearts: [Heart], into c: inout PixelCanvas) {
+    func draw(_ p: Pose, bunLag: Int, hearts: [Heart], into c: inout PixelCanvas, fx: StageFX = .none) {
         let dx = p.dx, dy = p.dy
         let skinC = RGBA(skin.base)
+
+        if fx.lights { drawLights(fx, dx: dx, into: &c) }
 
         // Shadow on the floor (does not move with dy; shrinks in the air).
         let inset = p.airborne ? min(3, max(1, (-dy + 1) / 2)) : 0
@@ -463,7 +501,15 @@ final class SpriteRenderer {
             c.line(shoulderX, sy, ex, ey, brush: brush, skinC)
             c.line(ex, ey, hx, hy, brush: brush, skinC)
             let rows = l.hy < l.ey ? [hy - 1, hy] : [hy, hy + 1]
-            for y in rows { c.put(hx, y, skinC); c.put(hx + brush, y, skinC) }
+            let handC = fx.lights ? RGBA(sign > 0 ? 0xFF2E9A : 0x00E5FF) : skinC
+            for y in rows { c.put(hx, y, handC); c.put(hx + brush, y, handC) }
+            if fx.lights {
+                // glow sticks: a soft halo around each hand
+                let lo = min(hx, hx + brush), hi = max(hx, hx + brush)
+                let halo = RGBA(sign > 0 ? 0xFF2E9A : 0x00E5FF, alpha: 0.35)
+                for y in rows { c.put(lo - 1, y, halo); c.put(hi + 1, y, halo) }
+                for x in lo...hi { c.put(x, rows[0] - 1, halo); c.put(x, rows[1] + 1, halo) }
+            }
         }
         arm(shoulderX: 12, sign: 1, brush: 1, p.lArm)
         arm(shoulderX: 23, sign: -1, brush: -1, p.rArm)
@@ -474,5 +520,33 @@ final class SpriteRenderer {
             let col = RGBA(h.color, alpha: alpha)
             c.blit(Self.heartRows, x: Int(h.x.rounded()), y: Int(h.y.rounded())) { $0 == "X" ? col : nil }
         }
+    }
+
+    private static let lightColors: [UInt32] = [0xFF2E9A, 0x00E5FF, 0x8B5CF6, 0xC6FF00]
+
+    /// Spotlight cone, floor glow and a mirror ball. Colour changes every beat.
+    private func drawLights(_ fx: StageFX, dx: Int, into c: inout PixelCanvas) {
+        let col = Self.lightColors[Int(floor(max(0, fx.beat))) & 3]
+        let cx = 17.5 + Double(dx)
+        for y in 3...31 {
+            let t = Double(y - 3) / 28
+            let half = 2.0 + t * 14
+            let lo = Int((cx - half).rounded()), hi = Int((cx + half).rounded())
+            for x in lo...hi {
+                let edge = abs(Double(x) - cx) / half
+                let a = 0.20 * (1 - edge * 0.7) * (0.6 + 0.4 * (1 - t))
+                c.put(x, y, RGBA(col, alpha: a))
+            }
+        }
+        for (y, w, a) in [(32, 12, 0.35), (33, 11, 0.28), (34, 9, 0.20), (35, 6, 0.12)] {
+            for x in (18 - w + dx)...(17 + w + dx) { c.put(x, y, RGBA(col, alpha: a)) }
+        }
+        let spin = Int(floor(max(0, fx.beat) * 2)) & 1
+        let white = RGBA(0xFFFFFF), grey = RGBA(0xB8BCD0)
+        let ball = spin == 0 ? [".W.", "WGW", ".W."] : [".G.", "GWG", ".G."]
+        c.blit(ball, x: 16, y: 0) { $0 == "W" ? white : ($0 == "G" ? grey : nil) }
+        let spots = [(13, 1), (21, 2), (14, 4), (20, 0)]
+        let spot = spots[Int(floor(max(0, fx.beat) * 4)) & 3]
+        c.put(spot.0, spot.1, RGBA(0xFFFFFF, alpha: 0.9))
     }
 }

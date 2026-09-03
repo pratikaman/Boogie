@@ -7,7 +7,7 @@ APP="build/Boogie.app"
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-swiftc -O Sources/*.swift -o "$APP/Contents/MacOS/Boogie"
+swiftc -O -import-objc-header Sources/Private.h -framework IOKit Sources/*.swift -o "$APP/Contents/MacOS/Boogie"
 cp Info.plist "$APP/Contents/Info.plist"
 
 # The app icon is rendered from the sprite itself, so the pixel art in
