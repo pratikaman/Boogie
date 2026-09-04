@@ -34,6 +34,8 @@ func fxSheet() {
         let b = Double(i) * 0.5 + 0.1
         frames.append((Moves.bop.pose(MoveContext(beat: b)), StageFX(lights: true, beat: b)))
     }
+    for t in [0.05, 0.15] { frames.append((Moves.fall(t: t), .none)) }
+    for t in [0.05, 0.2, 0.3, 0.5] { frames.append((Moves.land(t: t), .none)) }
     let ctx = context(w: frames.count * S * scale, h: S * scale)
     ctx.setFillColor(bg)
     ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))

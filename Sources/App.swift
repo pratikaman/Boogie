@@ -15,6 +15,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     private var lastReadout = SensorReadout()
     private var lastAmbience = Ambience()
     private var wasSurfing = false
+    private var lastTick: TimeInterval = 0
+
+    // Gravity: dancers currently falling, by index.
+    private struct Fall { var vy: CGFloat = 0; var bounced = false }
+    private var falls: [Int: Fall] = [:]
+    private static let gravity: CGFloat = 2600   // points/s²
     private static let debugSensors = ProcessInfo.processInfo.environment["BOOGIE_DEBUG_SENSORS"] != nil
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -87,7 +93,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
                 if self.popover.isShown { self.popover.performClose(nil) }
                 self.showPanel(relativeTo: w.dancer, edge: .maxY)
             }
-            w.dancer.onDragEnd = { [weak self] origin in self?.settings.setPosition(i, origin) }
+            w.dancer.onDragEnd = { [weak self] _ in self?.release(i) }
+            w.dancer.onGrab = { [weak self, weak w] in
+                self?.falls[i] = nil
+                w?.dancer.motion = .none
+            }
             return w
         }
         layout()
@@ -131,6 +141,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
             }
             w.setFrame(NSRect(origin: origin, size: CGSize(width: size, height: size)), display: true)
         }
+        // Anyone left hanging in the air (a saved spot above the Dock) drops.
+        for i in windows.indices { release(i) }
+    }
+
+    // MARK: Gravity
+
+    /// The window origin y at which her feet touch the Dock (or the screen bottom).
+    private func floorY(for w: NSWindow) -> CGFloat {
+        let screen = w.screen ?? NSScreen.screens.first
+        return (screen?.visibleFrame.minY ?? 0) - CGFloat(4 * settings.scale)
+    }
+
+    /// Let go of dancer `i`: fall if she's above the floor, otherwise settle and remember the spot.
+    private func release(_ i: Int) {
+        guard i < windows.count else { return }
+        let w = windows[i]
+        let floor = floorY(for: w)
+        if w.frame.origin.y > floor + 1 {
+            falls[i] = Fall()
+            w.dancer.motion = .falling(since: Date().timeIntervalSinceReferenceDate)
+        } else {
+            if w.frame.origin.y < floor { w.setFrameOrigin(CGPoint(x: w.frame.origin.x, y: floor)) }
+            falls[i] = nil
+            settings.setPosition(i, w.frame.origin)
+        }
+    }
+
+    private func advanceFalls(now: TimeInterval, dt: CGFloat) {
+        for (i, fall) in falls {
+            guard i < windows.count else { falls[i] = nil; continue }
+            var f = fall
+            let w = windows[i]
+            let floor = floorY(for: w)
+            f.vy -= Self.gravity * dt
+            var origin = w.frame.origin
+            origin.y += f.vy * dt
+            if origin.y > floor {
+                w.setFrameOrigin(origin)
+                falls[i] = f
+                continue
+            }
+            origin.y = floor
+            w.setFrameOrigin(origin)
+            let impact = -f.vy
+            w.dancer.puffDust()
+            if impact > 1000 && !f.bounced {
+                // A long drop: one hop back up before she settles.
+                f.bounced = true
+                f.vy = impact * 0.22
+                falls[i] = f
+            } else {
+                falls[i] = nil
+                w.dancer.motion = .landing(since: now)
+                settings.setPosition(i, origin)
+            }
+        }
     }
 
     private func tick() {
@@ -142,8 +208,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
             let r = lastReadout
             FileHandle.standardError.write("sensors tilt=\(r.tilt.map { String(format: "%+.3f", $0) } ?? "nil") raw=\(sensors.rawDescription) lid=\(r.lid.map { String(Int($0)) } ?? "nil") lux=\(r.lux.map { String(Int($0)) } ?? "nil") surf=\(amb.surfDir) dx=\(String(format: "%.1f", amb.slideDx)) duck=\(amb.duck) lights=\(amb.lights)\n".data(using: .utf8)!)
         }
+        let dt = CGFloat(lastTick == 0 ? 1.0 / 30 : min(0.1, now - lastTick))
+        lastTick = now
         guard !settings.hidden else { return }
         if amb.slideDx != 0 { slide(by: amb.slideDx) }
+        if !falls.isEmpty { advanceFalls(now: now, dt: dt) }
         if wasSurfing && !crossover.surfing {
             // She stopped somewhere new; remember it so she stays there.
             for (i, w) in windows.enumerated() { settings.setPosition(i, w.frame.origin) }
@@ -158,7 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     /// Move every dancer sideways, bouncing off the screen edges.
     private func slide(by dx: CGFloat) {
         var hitEdge = false
-        for w in windows {
+        for (i, w) in windows.enumerated() where falls[i] == nil {
             guard let screen = w.screen ?? NSScreen.screens.first else { continue }
             let vf = screen.visibleFrame
             var origin = w.frame.origin
@@ -235,6 +304,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
 
     func snapToDock() {
         settings.clearPositions()
+        falls.removeAll()
+        windows.forEach { $0.dancer.motion = .none }
         layout()
     }
 

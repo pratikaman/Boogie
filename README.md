@@ -25,6 +25,9 @@ bounce a frame late, because physics is hot.
 - **Click her.** She jumps and throws hearts at you. Needy? A little. Aren't we all.
 - **Drag her.** She'll go anywhere. Your second monitor. The corner of your
   spreadsheet. Directly on top of your manager's face in Zoom.
+- **Drop her.** Let go of her in mid-air and gravity does the rest: she flails
+  all the way down, lands on the Dock with a squash and a puff of dust, and
+  wobbles upright. From high enough she bounces. She's fine. Probably.
 - **Right-click her** (or hit the `🕺` in the menu bar) for the club panel: neon
   marquee, a live stage preview, and every dial she has. She takes requests.
 - **Tempo** runs from Chill (92 BPM, a slow Tuesday) to Rave (172 BPM, a poor decision).

@@ -294,6 +294,38 @@ enum Moves {
         return p
     }
 
+    /// Free fall: flailing arms, kicking legs, hair up.
+    static func fall(t: Double) -> Pose {
+        var p = Pose()
+        let flip = Int(t / 0.12) % 2 == 0
+        p.lArm = flip ? .up : .tpose
+        p.rArm = flip ? .tpose : .up
+        p.lLeg = Leg(dx: -1, lift: flip ? 2 : 0)
+        p.rLeg = Leg(dx: -1, lift: flip ? 0 : 2)
+        p.airborne = true
+        p.headDy = -1
+        return p
+    }
+
+    static let landDuration = 0.74
+
+    /// Touchdown: a deep squash, then a wobble back upright.
+    static func land(t: Double) -> Pose {
+        var p = Pose()
+        if t < 0.14 {
+            p.dy = 3
+            p.lArm = .pumpLow; p.rArm = .pumpLow
+            p.lLeg = Leg(dx: -3); p.rLeg = Leg(dx: -3)
+            p.headDy = 1
+        } else {
+            let w = t - 0.14
+            p.dy = w < 0.15 ? 1 : 0
+            p.headDx = w < 0.5 ? (Int(w / 0.09) % 2 == 0 ? 1 : -1) : 0
+            p.lLeg = Leg(dx: -1); p.rLeg = Leg(dx: -1)
+        }
+        return p
+    }
+
     static let all: [Move] = [bop, roof, sway, disco, robot, runningMan, twist, pogo, stepTouch, wave, headbang]
 
     static func named(_ id: String) -> Move? { all.first { $0.id == id } }
@@ -372,11 +404,13 @@ struct PixelCanvas {
 // MARK: - Particles
 
 struct Heart {
+    enum Kind { case heart, dust }
     var x: Double, y: Double
     var vx: Double, vy: Double
     var age: Double = 0
     var life: Double
     var color: UInt32
+    var kind: Kind = .heart
 }
 
 /// Club lights state passed to the renderer.
@@ -514,11 +548,15 @@ final class SpriteRenderer {
         arm(shoulderX: 12, sign: 1, brush: 1, p.lArm)
         arm(shoulderX: 23, sign: -1, brush: -1, p.rArm)
 
-        // Hearts.
+        // Hearts and dust.
         for h in hearts {
             let alpha = max(0, 1 - h.age / h.life)
             let col = RGBA(h.color, alpha: alpha)
-            c.blit(Self.heartRows, x: Int(h.x.rounded()), y: Int(h.y.rounded())) { $0 == "X" ? col : nil }
+            let x = Int(h.x.rounded()), y = Int(h.y.rounded())
+            switch h.kind {
+            case .heart: c.blit(Self.heartRows, x: x, y: y) { $0 == "X" ? col : nil }
+            case .dust: c.put(x, y, col); c.put(x + 1, y, col)
+            }
         }
     }
 

@@ -34,6 +34,11 @@ final class DancerView: NSView {
     var onClick: (() -> Void)?
     var onRightClick: ((NSEvent) -> Void)?
     var onDragEnd: ((CGPoint) -> Void)?
+    var onGrab: (() -> Void)?
+
+    /// Set by the app while gravity has her: falling, or just landed.
+    enum Motion { case none, falling(since: TimeInterval), landing(since: TimeInterval) }
+    var motion: Motion = .none
 
     private var canvas = PixelCanvas()
     private var hearts: [Heart] = []
@@ -66,6 +71,7 @@ final class DancerView: NSView {
 
     func tick(now: TimeInterval, choreo: Choreographer, ambience: Ambience = Ambience()) {
         if let s = specialStart, now - s >= 0.9 { specialStart = nil }
+        if case .landing(let s) = motion, now - s >= Moves.landDuration { motion = .none }
 
         var pose = fullPose(at: now, choreo, ambience)
         let prev = fullPose(at: now - 0.08, choreo, ambience)
@@ -97,8 +103,13 @@ final class DancerView: NSView {
         layer?.contents = canvas.cgImage()
     }
 
-    /// Priority: a click celebration, then the lid, then a tilt, then the dance.
+    /// Priority: gravity, a click celebration, the lid, a tilt, then the dance.
     private func fullPose(at t: TimeInterval, _ choreo: Choreographer, _ amb: Ambience) -> Pose {
+        switch motion {
+        case .falling(let s): return Moves.fall(t: max(0, t - s))
+        case .landing(let s): if t - s < Moves.landDuration { return Moves.land(t: max(0, t - s)) }
+        case .none: break
+        }
         if let s = specialStart, t - s < 0.9 {
             let p = Self.specialPose(t - s)
             return mirrored ? p.mirrored() : p
@@ -137,9 +148,20 @@ final class DancerView: NSView {
         }
     }
 
+    /// A puff of dust at her feet.
+    func puffDust() {
+        for _ in 0..<8 {
+            let side: Double = Bool.random() ? 1 : -1
+            hearts.append(Heart(x: Double.random(in: 14...21), y: 31,
+                                vx: side * Double.random(in: 8...24), vy: Double.random(in: -9 ... -2),
+                                life: Double.random(in: 0.3...0.5), color: 0xD6D9EA, kind: .dust))
+        }
+    }
+
     // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
+        onGrab?()
         dragOrigin = NSEvent.mouseLocation
         windowOrigin = window?.frame.origin ?? .zero
         dragged = false
