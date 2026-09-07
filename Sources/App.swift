@@ -104,20 +104,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
         if !settings.hidden { windows.forEach { $0.orderFrontRegardless() } }
     }
 
-    /// Each dancer in a squad gets its own fit and skin, cycling from the chosen ones.
+    /// A squad cycles through the cast from the chosen dancer; Boogie's fit and skin cycle too.
     private func renderer(for i: Int) -> SpriteRenderer {
-        let fits = Wardrobe.fits, skins = Wardrobe.skins
+        let fits = Wardrobe.fits, skins = Wardrobe.skins, cast = Cast.roster
         let f = fits.firstIndex { $0.id == settings.fitId } ?? 0
         let s = skins.firstIndex { $0.id == settings.skinId } ?? 1
-        return SpriteRenderer(fit: fits[(f + i) % fits.count], skin: skins[(s + 2 * i) % skins.count])
+        let c = cast.firstIndex { $0.id == settings.lookId } ?? 0
+        return SpriteRenderer(look: Cast.look(cast[(c + i) % cast.count].id,
+                                              fit: fits[(f + i) % fits.count], skin: skins[(s + 2 * i) % skins.count]))
     }
 
     private func applyWardrobe() {
-        for (i, w) in windows.enumerated() {
-            let r = renderer(for: i)
-            w.dancer.renderer.fit = r.fit
-            w.dancer.renderer.skin = r.skin
-        }
+        for (i, w) in windows.enumerated() { w.dancer.renderer.look = renderer(for: i).look }
         model.refresh(from: settings, loginEnabled: model.loginEnabled)
     }
 
@@ -266,6 +264,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     func setScale(_ scale: Int) {
         settings.scale = scale
         rebuildDancers()
+    }
+
+    func setLook(_ id: String) {
+        settings.lookId = id
+        applyWardrobe()
     }
 
     func setFit(_ id: String) {

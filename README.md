@@ -32,9 +32,24 @@ bounce a frame late, because physics is hot.
   marquee, a live stage preview, and every dial she has. She takes requests.
 - **Tempo** runs from Chill (92 BPM, a slow Tuesday) to Rave (172 BPM, a poor decision).
 - **Fit:** six outfits. **Skin:** five tones. She's not picky, and neither should you be.
-- **Squad:** bring a duo or a trio. Odd-numbered dancers mirror the moves, so it
-  looks choreographed rather than like three strangers who just met on the Dock.
+- **Squad:** bring a duo or a trio. The squad runs down the cast list, so a trio
+  is all three of them. Odd-numbered dancers mirror the moves, so it looks
+  choreographed rather than like three strangers who just met on the Dock.
 - **Take five** when HR walks past. **Hide** when they walk back.
+
+## Who's dancing
+
+<p align="center">
+  <img src="assets/cast.png" width="720" alt="Boogie, Bruce and Jazz: eight moves each">
+</p>
+
+Three of them now. **Boogie** is the original. **Bruce** and **Jazz** wandered
+over from [lil agents](https://github.com/ryanstephen/lil-agents), where they
+pace above your Dock and open a terminal when you click them. Here they dance
+instead. Bruce: flat-top cap, green utility jacket, cream everything else, and a
+smile that never blinks. Jazz: sunglasses like hubcaps, orange overalls, a scarf
+and a hip bag that swing a beat late. Pick one under **Dancer** in the panel.
+Fit and Skin are Boogie's alone. The other two came dressed.
 
 ## She knows what you're doing with that laptop
 

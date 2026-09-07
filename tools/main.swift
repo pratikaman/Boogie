@@ -1,5 +1,5 @@
 // Renders the sprite to PNG/GIF files. Used by build.sh for the app icon and
-// by hand for README previews. Usage: render <outdir> [sheet|icon|gif|all]
+// by hand for README previews. Usage: render <outdir> [sheet|cast|icon|gif|fx|all]
 import AppKit
 import ImageIO
 import UniformTypeIdentifiers
@@ -77,6 +77,33 @@ func sheet() {
     write(ctx.makeImage()!, "sheet.png")
 }
 
+// Cast sheet: one row per dancer, eight moves each.
+func cast() {
+    let scale = 5
+    let moves = [Moves.bop, Moves.roof, Moves.disco, Moves.robot, Moves.runningMan, Moves.twist, Moves.wave, Moves.headbang]
+    let ctx = context(w: moves.count * S * scale, h: Cast.roster.count * S * scale)
+    ctx.setFillColor(bg)
+    ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
+    for (r, who) in Cast.roster.enumerated() {
+        let renderer = SpriteRenderer(look: Cast.look(who.id, fit: Wardrobe.fits[0], skin: Wardrobe.skins[1]))
+        // Catch the classic typo: a row one pixel short, or a colour letter the palette doesn't know.
+        let look = renderer.look
+        for row in look.head + look.blink + look.torso { precondition(row.count == 12, "\(who.id): '\(row)' is not 12 wide") }
+        for row in look.head + look.blink + look.torso + look.dangly.flatMap(\.rows) {
+            precondition(row.allSatisfy { $0 == "." || look.palette[$0] != nil }, "\(who.id): unknown colour in '\(row)'")
+        }
+        for (col, move) in moves.enumerated() {
+            let b = Double(col) * 0.5 + 0.1
+            let pose = move.pose(MoveContext(beat: b))
+            let prev = move.pose(MoveContext(beat: b - 0.2))
+            let lag = max(-2, min(2, (prev.dy + prev.headDy) - (pose.dy + pose.headDy)))
+            let y = ctx.height - (r + 1) * S * scale
+            ctx.draw(frame(renderer, pose, bunLag: lag), in: CGRect(x: col * S * scale, y: y, width: S * scale, height: S * scale))
+        }
+    }
+    write(ctx.makeImage()!, "cast.png")
+}
+
 // Icon: rounded dark tile with the dancer mid-disco.
 func icon() {
     let size = 1024
@@ -134,7 +161,8 @@ func gif() {
 switch what {
 case "fx": fxSheet()
 case "sheet": sheet()
+case "cast": cast()
 case "icon": icon()
 case "gif": gif()
-default: sheet(); icon(); gif()
+default: sheet(); cast(); icon(); gif()
 }

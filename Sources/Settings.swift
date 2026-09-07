@@ -23,6 +23,11 @@ final class Settings {
         get { let v = d.integer(forKey: "scale"); return v == 0 ? 5 : v }
         set { d.set(newValue, forKey: "scale") }
     }
+    /// Who's dancing: boogie | bruce | jazz.
+    var lookId: String {
+        get { d.string(forKey: "look") ?? "boogie" }
+        set { d.set(newValue, forKey: "look") }
+    }
     var fitId: String {
         get { d.string(forKey: "fit") ?? "raver" }
         set { d.set(newValue, forKey: "fit") }

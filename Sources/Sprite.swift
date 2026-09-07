@@ -420,54 +420,154 @@ struct StageFX {
     static let none = StageFX()
 }
 
-// MARK: - Renderer
+// MARK: - Looks
 
-/// Draws the dancer into a PixelCanvas. The body is a hand-drawn bitmap, the
-/// limbs are procedural 2px lines so every move can pose them freely.
-final class SpriteRenderer {
-    var fit: Fit
-    var skin: Skin
+/// Who's dancing: the body bitmaps plus the colours the procedural limbs are
+/// drawn in. Bitmaps are 12px wide; the head is blitted at (12, 3) and the
+/// torso at (12, 16) before the pose offsets. Boogie's look comes from a Fit
+/// and a Skin; Bruce and Jazz always wear their own clothes.
+struct Look {
+    let id: String
+    let name: String
+    let head: [String]
+    let blink: [String]
+    let torso: [String]
+    /// Bits that swing a frame behind the head (buns, a scarf, a bag), offset from the head origin.
+    let dangly: [(rows: [String], dx: Int, dy: Int)]
+    let palette: [Character: UInt32]
+    let sleeve: UInt32, hand: UInt32, leg: UInt32, shoe: UInt32, sole: UInt32
+}
 
-    init(fit: Fit, skin: Skin) { self.fit = fit; self.skin = skin }
+enum Cast {
+    static let roster: [(id: String, name: String)] = [("boogie", "Boogie"), ("bruce", "Bruce"), ("jazz", "Jazz")]
 
-    // 10px wide, rows 3...15 of the sprite (hair, face, neck).
-    private static func headRows(eyesClosed: Bool) -> [String] {
-        [
-            "...HHHH...",
-            "..HLLHHH..",
-            ".HLHHHHHH.",
-            "HHHHHHHHHH",
-            "HHHSSSSHHH",
-            "HHSSSSSSHH",
-            "HSSSSSSSSH",
-            eyesClosed ? "HSSSSSSSSH" : "HSEWSSEWSH",
-            eyesClosed ? "HSEESSEESH" : "HSEESSEESH",
-            ".BSSSSSSB.",
-            ".SSSMMSSS.",
-            "..SSSSSS..",
-            "....SS....",
-        ]
+    static func look(_ id: String, fit: Fit, skin: Skin) -> Look {
+        switch id {
+        case "bruce": return bruce
+        case "jazz": return jazz
+        default: return boogie(fit: fit, skin: skin)
+        }
     }
 
-    // 10px wide, rows 16...24 (crop top, midriff, shorts).
-    private static let torsoRows = [
-        ".TTTTTTTT.",
-        "TTTTTTTTTT",
-        "TTTTTTTTTT",
-        ".DDDDDDDD.",
-        "..SSSSSS..",
-        "..SSSSSS..",
-        ".PPPPPPPP.",
-        ".PPPPPPPP.",
-        ".PPP..PPP.",
-    ]
+    /// The original: buns, crop top, shorts, sneakers.
+    static func boogie(fit: Fit, skin: Skin) -> Look {
+        let open = [
+            "....HHHH....",
+            "...HLLHHH...",
+            "..HLHHHHHH..",
+            ".HHHHHHHHHH.",
+            ".HHHSSSSHHH.",
+            ".HHSSSSSSHH.",
+            ".HSSSSSSSSH.",
+            ".HSEWSSEWSH.",
+            ".HSEESSEESH.",
+            "..BSSSSSSB..",
+            "..SSSMMSSS..",
+            "...SSSSSS...",
+            ".....SS.....",
+        ]
+        var shut = open
+        shut[7] = ".HSSSSSSSSH."
+        let bun = [".HH.", "HLHH", "HHHH", ".HH."]
+        return Look(id: "boogie", name: "Boogie", head: open, blink: shut,
+                    torso: [
+                        "..TTTTTTTT..",
+                        ".TTTTTTTTTT.",
+                        ".TTTTTTTTTT.",
+                        "..DDDDDDDD..",
+                        "...SSSSSS...",
+                        "...SSSSSS...",
+                        "..PPPPPPPP..",
+                        "..PPPPPPPP..",
+                        "..PPP..PPP..",
+                    ],
+                    dangly: [(bun, -1, -1), (bun, 9, -1)],
+                    palette: ["H": fit.hair, "L": fit.hairLight, "S": skin.base, "E": 0x1B1B24, "W": 0xFFFFFF,
+                              "B": skin.blush, "M": skin.mouth, "T": fit.top, "D": fit.topShade, "P": fit.shorts],
+                    sleeve: skin.base, hand: skin.base, leg: skin.base, shoe: fit.shoe, sole: fit.sole)
+    }
 
-    private static let bunRows = [
-        ".HH.",
-        "HLHH",
-        "HHHH",
-        ".HH.",
-    ]
+    /// Black cap, green utility jacket over a cream tee, cream pants, black high-tops. Smiles, never blinks.
+    static let bruce: Look = {
+        let head = [
+            "...CCCCCC...",
+            "..CCCCCCCC..",
+            "..CCCCCCCC..",
+            "..CCCCCCCC..",
+            ".CCCCCCCCCC.",
+            "..SSSSSSSS..",
+            "..SSSSSSSS..",
+            "..SSSSSSSS..",
+            "..SSMSSMSS..",
+            "..SSSMMSSS..",
+            "...SSSSSS...",
+            "....SSSS....",
+            "....SSSS....",
+        ]
+        return Look(id: "bruce", name: "Bruce", head: head, blink: head,
+                    torso: [
+                        "JJJJTTTTJJJJ",
+                        "JJJJTTTTJJJJ",
+                        "JKKJTTTTJKKJ",
+                        "JJJJTTTTJJJJ",
+                        "JJJJTTTTJJJJ",
+                        "JKKJTTTTJKKJ",
+                        "JKKJTTTTJKKJ",
+                        "JJJJTTTTJJJJ",
+                        "JJJJTTTTJJJJ",
+                    ],
+                    dangly: [],
+                    palette: ["C": 0x1B1D3E, "S": 0xEBB3DA, "M": 0x15193B, "J": 0x6FB095, "K": 0x398268, "T": 0xEBE0E9],
+                    sleeve: 0x6FB095, hand: 0xEBB3DA, leg: 0xEBE0E9, shoe: 0x121536, sole: 0xF0E4A8)
+    }()
+
+    /// Pink hair, sunglasses the size of hubcaps, blue jacket and scarf, orange overalls, a bag on the hip.
+    static let jazz: Look = {
+        let head = [
+            "....HHHH....",
+            "...HHHHHH...",
+            "..HHHHHHHH..",
+            "..HHHHHHHH..",
+            ".GGG.HH.GGG.",
+            "GWIIGGGGWIIG",
+            "GIIIGSSGIIIG",
+            ".GGG.SS.GGG.",
+            "..SSSSSSSS..",
+            "..SSSSSSSS..",
+            ".BBBBBBBBBB.",
+            ".BBBBBBBBBB.",
+            "..BBBBBBBB..",
+        ]
+        let scarf = Array(repeating: "BB", count: 5)
+        let bag = ["YYYY", "YKKY", "DDKD", "DKDD"]
+        return Look(id: "jazz", name: "Jazz", head: head, blink: head,
+                    torso: [
+                        "JJJJOOOOJJJJ",
+                        "JJJJOOOOJJJJ",
+                        "JJJJOOOOJJJJ",
+                        "JJJJOOOOJJJJ",
+                        "JJJJOOOOJJJJ",
+                        "JJJJOOOOJJJJ",
+                        "JJJJOOOOJJJJ",
+                        "JJJJOOOOJJJJ",
+                        "..OOOOOOOO..",
+                    ],
+                    dangly: [(scarf, 4, 13), (bag, -1, 15)],
+                    palette: ["H": 0xF2A0C4, "G": 0x050310, "I": 0x4E4BB5, "W": 0xFFFFFF, "S": 0xF5C6D4, "B": 0x0450A0,
+                              "J": 0x6398D8, "O": 0xEE612B, "Y": 0xF2C46C, "K": 0x111025, "D": 0x3986D2],
+                    sleeve: 0x6398D8, hand: 0x111025, leg: 0xEE612B, shoe: 0xF9E8E0, sole: 0xEE612B)
+    }()
+}
+
+// MARK: - Renderer
+
+/// Draws a dancer into a PixelCanvas. The body is a hand-drawn bitmap, the
+/// limbs are procedural 2px lines so every move can pose them freely.
+final class SpriteRenderer {
+    var look: Look
+
+    init(look: Look) { self.look = look }
+    convenience init(fit: Fit, skin: Skin) { self.init(look: Cast.boogie(fit: fit, skin: skin)) }
 
     private static let heartRows = [
         ".X.X.",
@@ -476,25 +576,10 @@ final class SpriteRenderer {
         "..X..",
     ]
 
-    private func color(_ ch: Character) -> RGBA? {
-        switch ch {
-        case "H": return RGBA(fit.hair)
-        case "L": return RGBA(fit.hairLight)
-        case "S": return RGBA(skin.base)
-        case "E": return RGBA(0x1B1B24)
-        case "W": return RGBA(0xFFFFFF)
-        case "B": return RGBA(skin.blush)
-        case "M": return RGBA(skin.mouth)
-        case "T": return RGBA(fit.top)
-        case "D": return RGBA(fit.topShade)
-        case "P": return RGBA(fit.shorts)
-        default: return nil
-        }
-    }
+    private func color(_ ch: Character) -> RGBA? { look.palette[ch].map { RGBA($0) } }
 
     func draw(_ p: Pose, bunLag: Int, hearts: [Heart], into c: inout PixelCanvas, fx: StageFX = .none) {
         let dx = p.dx, dy = p.dy
-        let skinC = RGBA(skin.base)
 
         if fx.lights { drawLights(fx, dx: dx, into: &c) }
 
@@ -506,36 +591,37 @@ final class SpriteRenderer {
 
         // Legs + sneakers.
         let floorY = 30 + (p.airborne ? dy : 0)
+        let legC = RGBA(look.leg), shoeC = RGBA(look.shoe), soleC = RGBA(look.sole)
         func leg(hipX: Int, sign: Int, brush: Int, _ leg: Leg) {
             let hipY = 25 + dy
             let shoeTop = max(hipY + 1, floorY - min(leg.lift, 3))
             let ankleX = hipX + sign * leg.dx
-            c.line(hipX, hipY, ankleX, shoeTop - 1, brush: brush, skinC)
+            c.line(hipX, hipY, ankleX, shoeTop - 1, brush: brush, legC)
             for x in (ankleX - 1)...(ankleX + 1) {
-                c.put(x, shoeTop, RGBA(fit.shoe))
-                c.put(x, shoeTop + 1, RGBA(fit.sole))
+                c.put(x, shoeTop, shoeC)
+                c.put(x, shoeTop + 1, soleC)
             }
         }
         leg(hipX: 15, sign: 1, brush: 1, p.lLeg)
         leg(hipX: 20, sign: -1, brush: -1, p.rLeg)
 
-        // Torso, head, buns.
-        c.blit(Self.torsoRows, x: 13 + dx, y: 16 + dy, color)
-        let hx = 13 + dx + p.headDx, hy = 3 + dy + p.headDy
-        c.blit(Self.headRows(eyesClosed: p.eyesClosed), x: hx, y: hy, color)
+        // Torso, head, then whatever dangles a frame late.
+        c.blit(look.torso, x: 12 + dx, y: 16 + dy, color)
+        let hx = 12 + dx + p.headDx, hy = 3 + dy + p.headDy
+        c.blit(p.eyesClosed ? look.blink : look.head, x: hx, y: hy, color)
         let lag = max(-1, min(1, bunLag))
-        c.blit(Self.bunRows, x: hx - 2, y: hy - 1 + lag, color)
-        c.blit(Self.bunRows, x: hx + 8, y: hy - 1 + lag, color)
+        for d in look.dangly { c.blit(d.rows, x: hx + d.dx, y: hy + d.dy + lag, color) }
 
         // Arms (drawn last so hands pass in front of the body).
+        let sleeveC = RGBA(look.sleeve), bareHand = RGBA(look.hand)
         func arm(shoulderX: Int, sign: Int, brush: Int, _ l: Limb) {
             let sy = 16 + dy
             let ex = shoulderX + sign * l.ex, ey = sy + l.ey
             let hx = shoulderX + sign * l.hx, hy = sy + l.hy
-            c.line(shoulderX, sy, ex, ey, brush: brush, skinC)
-            c.line(ex, ey, hx, hy, brush: brush, skinC)
+            c.line(shoulderX, sy, ex, ey, brush: brush, sleeveC)
+            c.line(ex, ey, hx, hy, brush: brush, sleeveC)
             let rows = l.hy < l.ey ? [hy - 1, hy] : [hy, hy + 1]
-            let handC = fx.lights ? RGBA(sign > 0 ? 0xFF2E9A : 0x00E5FF) : skinC
+            let handC = fx.lights ? RGBA(sign > 0 ? 0xFF2E9A : 0x00E5FF) : bareHand
             for y in rows { c.put(hx, y, handC); c.put(hx + brush, y, handC) }
             if fx.lights {
                 // glow sticks: a soft halo around each hand

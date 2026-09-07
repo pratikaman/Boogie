@@ -38,6 +38,7 @@ protocol PanelActions: AnyObject {
     func setHidden(_ hidden: Bool)
     func setBPM(_ bpm: Int)
     func setScale(_ scale: Int)
+    func setLook(_ id: String)
     func setFit(_ id: String)
     func setSkin(_ id: String)
     func setMove(_ id: String)
@@ -62,6 +63,7 @@ final class PanelModel: ObservableObject {
     @Published var hidden = false
     @Published var bpm = 118
     @Published var scale = 5
+    @Published var lookId = "boogie"
     @Published var fitId = "raver"
     @Published var skinId = "fair"
     @Published var moveId = "shuffle"
@@ -99,13 +101,13 @@ final class PanelModel: ObservableObject {
         hidden = s.hidden
         bpm = s.bpm
         scale = s.scale
+        lookId = s.lookId
         fitId = s.fitId
         skinId = s.skinId
         moveId = s.moveId
         squad = s.squad
         self.loginEnabled = loginEnabled
-        renderer.fit = Wardrobe.fit(s.fitId)
-        renderer.skin = Wardrobe.skin(s.skinId)
+        renderer.look = Cast.look(s.lookId, fit: Wardrobe.fit(s.fitId), skin: Wardrobe.skin(s.skinId))
         moveName = choreo?.currentMoveName ?? ""
         surf = s.surf
         duck = s.duck
@@ -193,6 +195,16 @@ struct PanelView: View {
             stage
             transport
 
+            section("DANCER") {
+                HStack(spacing: 6) {
+                    ForEach(Cast.roster, id: \.id) { who in
+                        Chip(title: who.name, selected: model.lookId == who.id, color: Club.pink) {
+                            model.actions?.setLook(who.id); model.lookId = who.id
+                        }
+                    }
+                }
+            }
+
             section("MOVE") {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
                     Chip(title: "Shuffle", selected: model.moveId == "shuffle", color: Club.cyan) { pick(move: "shuffle") }
@@ -225,7 +237,7 @@ struct PanelView: View {
                 section("SQUAD") {
                     HStack(spacing: 6) {
                         ForEach(1...3, id: \.self) { n in
-                            Chip(title: String(repeating: "♀", count: n), selected: model.squad == n, color: Club.pink) {
+                            Chip(title: ["Solo", "Duo", "Trio"][n - 1], selected: model.squad == n, color: Club.pink) {
                                 model.actions?.setSquad(n); model.squad = n
                             }
                         }
@@ -253,6 +265,8 @@ struct PanelView: View {
                     }
                 }
             }
+            // Bruce and Jazz came dressed; only Boogie changes.
+            .opacity(model.lookId == "boogie" ? 1 : 0.35)
 
             sensorsSection
             footer
