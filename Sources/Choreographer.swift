@@ -11,7 +11,19 @@ final class Choreographer {
     var lockedMoveId: String? {
         didSet { if let id = lockedMoveId, let m = Moves.named(id) { switchTo(m, at: beat(now: Date().timeIntervalSinceReferenceDate)) } }
     }
-    var paused = false
+    private var pausedBeat: Double?
+    var paused: Bool {
+        get { pausedBeat != nil }
+        set {
+            let now = Date().timeIntervalSinceReferenceDate
+            if newValue {
+                if pausedBeat == nil { pausedBeat = beat(now: now) }
+            } else if let frozen = pausedBeat {
+                t0 = now - frozen * 60 / Double(bpm)
+                pausedBeat = nil
+            }
+        }
+    }
     /// How many beats each move lasts in shuffle mode.
     var beatsPerMove: Double = 8
 
@@ -25,7 +37,7 @@ final class Choreographer {
     var currentMoveName: String { paused ? Moves.idle.name : currentMove.name }
 
     func beat(now: TimeInterval) -> Double {
-        (now - t0) * Double(bpm) / 60
+        pausedBeat ?? (now - t0) * Double(bpm) / 60
     }
 
     /// Change tempo without the beat jumping.

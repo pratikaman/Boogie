@@ -4,14 +4,19 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP="build/Boogie.app"
+for person in sophia manuel; do
+    test -f "assets/characters/$person/animation.json" || { echo "Missing character assets: $person" >&2; exit 1; }
+done
+export MACOSX_DEPLOYMENT_TARGET=13.0
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 swiftc -O -import-objc-header Sources/Private.h -framework IOKit Sources/*.swift -o "$APP/Contents/MacOS/Boogie"
 cp Info.plist "$APP/Contents/Info.plist"
+cp -R assets/characters "$APP/Contents/Resources/Characters"
+cp assets/CHARACTERS.md "$APP/Contents/Resources/Character Credits.md"
 
-# The app icon is rendered from the sprite itself, so the pixel art in
-# Sources/Sprite.swift is the single source of truth.
+# Render the studio wordmark icon; the same tool also makes pixel-cast previews.
 swiftc -O Sources/Sprite.swift tools/main.swift -o build/render
 ./build/render assets icon >/dev/null
 
