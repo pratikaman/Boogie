@@ -124,8 +124,7 @@ final class DancerView: NSView {
     }
 
     private func renderPerson(now: TimeInterval, choreo: Choreographer, ambience: Ambience) {
-        let clip = ambience.duck > 0 ? "duck\(ambience.duck)" : "dance"
-        let frame = playback.frame(id: characterID, beat: choreo.beat(now: now), clip: clip)
+        let frame = playback.frame(id: characterID, sample: choreo.dance(now: now), duck: ambience.duck)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         currentImage = frame

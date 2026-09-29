@@ -16,29 +16,37 @@ from mathutils import Vector, Matrix
 parser = argparse.ArgumentParser()
 parser.add_argument('--source', required=True)
 parser.add_argument('--output', required=True)
-parser.add_argument('--id', required=True, choices=['sophia', 'manuel'])
+parser.add_argument('--id', required=True, choices=['sophia', 'manuel', 'carla', 'nathan'])
 parser.add_argument('--preview', action='store_true')
 parser.add_argument('--motion-source')
 parser.add_argument('--reactions-only', action='store_true')
+parser.add_argument('--clip', default='dance')
+parser.add_argument('--start', type=float, default=2)
+parser.add_argument('--duration', type=float, default=12)
+parser.add_argument('--preview-frame', type=float)
+parser.add_argument('--in-place', action='store_true')
+parser.add_argument('--yaw', type=float, default=0)
 args = parser.parse_args(sys.argv[sys.argv.index('--') + 1:])
 out = Path(args.output)
 out.mkdir(parents=True, exist_ok=True)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
 scene.render.fps = 30
-if args.source.lower().endswith('.glb'):
-    bpy.ops.import_scene.gltf(filepath=args.source)
-else:
-    bpy.ops.import_scene.fbx(filepath=args.source)
+def import_model(path):
+    if path.lower().endswith('.glb'):
+        bpy.ops.import_scene.gltf(filepath=path)
+    else:
+        bpy.ops.import_scene.fbx(filepath=path)
+import_model(args.source)
 rig = next(o for o in scene.objects if o.type == 'ARMATURE')
-action = max(bpy.data.actions, key=lambda a: a.frame_range[1])
+action = max(bpy.data.actions, key=lambda a: a.frame_range[1], default=None)
 rig.animation_data_create()
 for track in rig.animation_data.nla_tracks:
     track.mute = True
 rig.animation_data.action = action
-if action.slots:
+if action and action.slots:
     rig.animation_data.action_slot = action.slots[0]
-first, last = action.frame_range
+first, last = action.frame_range if action else (1, 1)
 scene.frame_set(int(first))
 
 # FBX paths are author-machine paths; resolve texture files beside the download.
@@ -71,6 +79,7 @@ for obj in roots:
     obj.parent = anchor
 scale = 1.75 / height
 anchor.scale = (scale,) * 3
+anchor.rotation_euler.z = math.radians(args.yaw)
 anchor.location = (-(lo.x + hi.x) / 2 * scale, -(lo.y + hi.y) / 2 * scale, -lo.z * scale)
 
 scene.render.engine = 'CYCLES'
@@ -117,39 +126,48 @@ light('Fill', (3, -2, 2.5), 160, 3, (0.85, 0.9, 1.0))
 light('Edge', (1, 2, 4), 250, 3, (1, 0.94, 0.86))
 camera = bpy.data.objects.new('Camera', bpy.data.cameras.new('Camera'))
 scene.collection.objects.link(camera)
-camera.location = (0, -6, 0.946)
-point_at(camera, (0, 0, 0.946))
+camera.location = (0, -6, 1.078)
+point_at(camera, (0, 0, 1.078))
 camera.data.type = 'ORTHO'
-camera.data.ortho_scale = 2.15
+camera.data.ortho_scale = 2.45
 scene.camera = camera
 fps = 20
-source_fps = scene.render.fps
-# Both downloads include a calibration T-pose at frame 1. Skip it.
-first = 2
-count = 240
+# Animated Renderpeople downloads include a calibration T-pose at frame 1.
+first = args.start
+count = round(args.duration * fps)
 motion_rig = rig
-if args.motion_source:
+if args.motion_source or action is not None:
     previous = set(scene.objects)
-    bpy.ops.import_scene.fbx(filepath=args.motion_source)
+    # Use an independent motion rig even for Manuel: dependency-graph updates
+    # otherwise restore his keyed pose over the blended loop seam.
+    import_model(args.motion_source or args.source)
     imported = set(scene.objects) - previous
     motion_rig = next(o for o in imported if o.type == 'ARMATURE')
     for obj in imported:
         if obj.type == 'MESH':
             obj.hide_render = True
     rig.animation_data_clear()
+# FBX import changes the scene rate. Read the motion's rate after importing it;
+# a static rigged model such as Carla carries a different rate from the capture.
+source_fps = scene.render.fps
 
 def suffix(name):
     # Renderpeople use the same named human skeleton across these scans.
-    return name.split('_dancing_')[-1] if '_dancing_' in name else name.split('_idling_')[-1]
+    for activity in ['dancing', 'idling', 'walking']:
+        if f'_{activity}_' in name:
+            return name.split(f'_{activity}_')[-1]
+    return name
 source_bones = {suffix(b.name): b for b in motion_rig.pose.bones}
 
 def source_pose(t):
     scene.frame_set(int(t), subframe=t % 1)
     return {name: bone.matrix_basis.decompose() for name, bone in source_bones.items()}
 
+anchor_xy = anchor.location.copy()
 def set_pose(t, index):
+    anchor.location.x, anchor.location.y = anchor_xy.x, anchor_xy.y
     pose = source_pose(t)
-    blend = max(0, (index - (count - 12)) / 12)
+    blend = 0 if args.preview else max(0, (index - (count - 12)) / 12)
     if blend:
         opening = source_pose(first)
         for name, (loc, rotation, scale) in pose.items():
@@ -166,17 +184,29 @@ def set_pose(t, index):
         bone.location = loc * ratio
         bone.scale = scale
     bpy.context.view_layer.update()
+    if args.in_place:
+        hip = next(b for b in rig.pose.bones if suffix(b.name) == 'hip')
+        center = rig.matrix_world @ hip.head
+        anchor.location.x -= center.x
+        anchor.location.y -= center.y
+        bpy.context.view_layer.update()
+        # Keep asymmetric kicks and outstretched hands inside the transparent
+        # canvas without zooming or shrinking the character between routines.
+        low, high = bounds()
+        half_width = camera.data.ortho_scale * scene.render.resolution_x / scene.render.resolution_y / 2 - 0.035
+        anchor.location.x += max(-half_width - low.x, min(0, half_width - high.x))
+        bpy.context.view_layer.update()
 
 print('BAKE', args.id, 'source frames', first, last, 'count', count, 'bounds', list(lo), list(hi), flush=True)
 if args.preview:
     count = 1
 for index in range(0 if args.reactions_only else count):
-    t = first + index * source_fps / fps
+    t = args.preview_frame if args.preview_frame is not None else first + index * source_fps / fps
     set_pose(t, index)
     scene.render.filepath = str(out / f'{index:04d}.png')
     bpy.ops.render.render(write_still=True)
-clips = {'dance': {'start': 0, 'count': count}}
-if not args.preview:
+clips = {args.clip: {'start': 0, 'count': count}}
+if not args.preview and args.clip == 'dance':
     # Bend the knees in world space, keeping shoes level. Freeze the armature
     # before rendering so FBX's keyed hip location cannot overwrite this pose.
     set_pose(first, 0)

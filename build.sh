@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP="build/Boogie.app"
-for person in sophia manuel; do
+for person in sophia manuel carla nathan; do
     test -f "assets/characters/$person/animation.json" || { echo "Missing character assets: $person" >&2; exit 1; }
 done
 export MACOSX_DEPLOYMENT_TARGET=13.0

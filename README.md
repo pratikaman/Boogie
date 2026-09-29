@@ -5,8 +5,8 @@
 <h1 align="center">boogie.</h1>
 <p align="center">A little company for your desktop.</p>
 
-Boogie puts a dancing companion on your Mac's Dock. Choose **Sophia** or
-**Manuel**, two realistic, scanned 3D people rendered with soft studio lighting
+Boogie puts a dancing companion on your Mac's Dock. Choose **Sophia**,
+**Manuel**, **Carla**, or **Nathan**, four realistic, scanned 3D people rendered with soft studio lighting
 and motion-captured movement. They live in transparent windows, follow you
 across Spaces, and work entirely offline.
 
@@ -19,16 +19,18 @@ across Spaces, and work entirely offline.
 - **Click** a companion for a little jump and hearts.
 - **Drag and drop** them anywhere. Gravity brings them back to the Dock.
 - **Right-click** a person, or use the menu-bar icon, to open the controls.
+- Pick **Easy groove**, **High kicks**, or **Step & dip**, or let **Shuffle all dances** rotate through the full routines.
 - Choose an **Easy**, **Groove**, **Upbeat**, or **Party** pace.
-- Pick a size and bring a **solo, duo, or trio**. A trio repeats the first person.
+- Pick a size and bring a **solo, duo, or trio**. Each member of a trio is a different person.
 - **Pause**, **hide**, or **return to Dock** from the main panel.
 - Open **Preferences** to enable launch at login and sensor reactions.
 
 The panel uses warm paper colors, a terracotta accent, and a quiet live preview.
 The original Boogie, Bruce, and Jazz sprites are still available under **Pixel
 classics**, with their eleven moves. Boogie's outfit and skin controls live in
-Preferences. The scanned people keep their original clothes and share one
-motion-captured dance loop; they do not use the pixel cast's move selector.
+Preferences. The scanned people keep their original clothes and share three
+motion-captured routines. Dance choices persist separately for people and pixel
+classics. Pause and hide stay within reach below the scrolling controls.
 
 ## Responds to your Mac
 
@@ -64,6 +66,7 @@ artwork, and regenerates the app icon.
 build/Boogie.app/Contents/MacOS/Boogie --render-panel build/panel.png
 build/Boogie.app/Contents/MacOS/Boogie --render-panel build/preferences.png --preferences
 build/Boogie.app/Contents/MacOS/Boogie --render-panel build/manuel.png --character manuel
+build/Boogie.app/Contents/MacOS/Boogie --render-panel build/carla.png --character carla --dance high-kicks
 ```
 
 Snapshot options also include `--paused` and `--hidden`. To exercise sensors
@@ -85,7 +88,7 @@ including pause and tempo changes. Transparent margins pass clicks through.
 
 ## Character credits
 
-Sophia and Manuel are by [Renderpeople](https://renderpeople.com/free-3d-people/).
+Sophia, Manuel, Carla, and Nathan are by [Renderpeople](https://renderpeople.com/free-3d-people/).
 Their models are licensed, not public-domain assets. This repository includes
 rendered animation artwork; it does not include the source meshes, textures, or
 rigs. See [character sources, usage terms, and rendering instructions](assets/CHARACTERS.md).

@@ -29,7 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        choreo = Choreographer(bpm: settings.bpm, lockedMoveId: settings.moveId == "shuffle" ? nil : settings.moveId)
+        choreo = Choreographer(bpm: settings.bpm, lockedMoveId: settings.moveId == "shuffle" ? nil : settings.moveId,
+                               danceId: settings.danceId)
         choreo.paused = settings.paused
         crossover.surfEnabled = settings.surf
         crossover.duckEnabled = settings.duck
@@ -296,6 +297,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     func setMove(_ id: String) {
         settings.moveId = id
         choreo.lockedMoveId = id == "shuffle" ? nil : id
+    }
+
+    func setDance(_ id: String) {
+        settings.danceId = id
+        choreo.setDance(settings.danceId)
+        model.refresh(from: settings, loginEnabled: model.loginEnabled)
     }
 
     func setSquad(_ n: Int) {

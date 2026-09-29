@@ -31,6 +31,7 @@ protocol PanelActions: AnyObject {
     func setLook(_ id: String)
     func setFit(_ id: String)
     func setSkin(_ id: String)
+    func setDance(_ id: String)
     func setMove(_ id: String)
     func setSquad(_ n: Int)
     func setLogin(_ enabled: Bool)
@@ -57,6 +58,7 @@ final class PanelModel: ObservableObject {
     @Published var fitId = "raver"
     @Published var skinId = "fair"
     @Published var moveId = "shuffle"
+    @Published var danceId = "shuffle"
     @Published var squad = 1
     @Published var loginEnabled = false
     @Published var moveName = ""
@@ -96,6 +98,7 @@ final class PanelModel: ObservableObject {
         fitId = s.fitId
         skinId = s.skinId
         moveId = s.moveId
+        danceId = s.danceId
         squad = s.squad
         self.loginEnabled = loginEnabled
         renderer.look = Cast.look(s.lookId, fit: Wardrobe.fit(s.fitId), skin: Wardrobe.skin(s.skinId))
@@ -112,7 +115,7 @@ final class PanelModel: ObservableObject {
     /// A populated model for offscreen rendering.
     static func sample() -> PanelModel {
         let m = PanelModel()
-        m.bpm = 118; m.moveName = "Disco"; m.tilt = 0.12; m.lid = 112; m.lux = 3
+        m.bpm = 118; m.moveName = "Easy groove"; m.tilt = 0.12; m.lid = 112; m.lux = 3
         m.hasAccel = true; m.hasLid = true; m.hasLight = true
         m.lights = true; m.surfing = true
         m.preview = Companions.portrait(m.lookId)
@@ -148,7 +151,10 @@ final class PanelModel: ObservableObject {
 
     func updatePreview() {
         renderer.look = Cast.look(lookId, fit: Wardrobe.fit(fitId), skin: Wardrobe.skin(skinId))
-        if choreo == nil { preview = Companions.portrait(lookId) } else { tick() }
+        if choreo == nil {
+            preview = Companions.portrait(lookId)
+            moveName = Companions.find(lookId).realistic ? (Dances.find(danceId)?.name ?? Dances.all[0].name) : Moves.disco.name
+        } else { tick() }
     }
 
     private func tick() {
@@ -167,9 +173,9 @@ final class PanelModel: ObservableObject {
             if a.duck > 0 { pose = Moves.duck(stage: a.duck) } else if a.surfDir != 0 { pose = Moves.surf(dir: a.surfDir) }
         }
         if Companions.find(lookId).realistic {
-            preview = playback.frame(id: lookId, beat: choreo.beat(now: now),
-                                     clip: ducking > 0 ? "duck\(ducking)" : "dance")
-            moveName = Companions.find(lookId).dance
+            let sample = choreo.dance(now: now)
+            preview = playback.frame(id: lookId, sample: sample, duck: ducking)
+            moveName = sample.routine.name
             return
         }
         canvas.clear()
@@ -216,7 +222,10 @@ struct PanelView: View {
                 companionPage
             } else {
                 ScrollView { companionPage }
-                    .frame(height: min(584, (NSScreen.main?.visibleFrame.height ?? 900) - 180))
+                    .frame(height: min(600, (NSScreen.main?.visibleFrame.height ?? 900) - 250))
+            }
+            if !preferences {
+                transport.padding(.horizontal, 22).padding(.top, 10).padding(.bottom, 14)
             }
             Rectangle().fill(Studio.line).frame(height: 1)
             HStack {
@@ -247,29 +256,39 @@ struct PanelView: View {
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(Studio.secondary).buttonStyle(.plain)
             }
-            HStack(spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: classics ? 3 : 2), spacing: 8) {
                 ForEach(classics ? Companions.classics : Companions.people) { person in
                     characterButton(person)
                 }
             }
-            if !character.realistic {
-                HStack {
-                    sectionLabel("Dance")
-                    Spacer()
-                    if model.staticRender {
-                        Label(model.moveId == "shuffle" ? "Shuffle" : model.moveName, systemImage: "chevron.down")
-                            .font(.system(size: 11, weight: .medium))
-                    } else {
+            HStack {
+                sectionLabel("Dance")
+                Spacer()
+                if model.staticRender {
+                    Label(danceLabel, systemImage: "chevron.down")
+                        .font(.system(size: 11, weight: .medium))
+                } else {
                     Menu {
-                        Button("Shuffle") { model.actions?.setMove("shuffle"); model.moveId = "shuffle" }
-                        ForEach(Moves.all, id: \.id) { move in
-                            Button(move.name) { model.actions?.setMove(move.id); model.moveId = move.id }
+                        if character.realistic {
+                            Picker("Dance", selection: Binding(get: { model.danceId }, set: {
+                                model.actions?.setDance($0); model.danceId = $0
+                            })) {
+                                Text("Shuffle all dances").tag("shuffle")
+                                ForEach(Dances.all) { dance in Text(dance.name).tag(dance.id) }
+                            }
+                        } else {
+                            Picker("Dance", selection: Binding(get: { model.moveId }, set: {
+                                model.actions?.setMove($0); model.moveId = $0
+                            })) {
+                                Text("Shuffle").tag("shuffle")
+                                ForEach(Moves.all, id: \.id) { move in Text(move.name).tag(move.id) }
+                            }
                         }
                     } label: {
-                        Label(model.moveId == "shuffle" ? "Shuffle" : model.moveName, systemImage: "chevron.down")
+                        Label(danceLabel, systemImage: "chevron.down")
                             .font(.system(size: 11, weight: .medium))
                     }.menuStyle(.borderlessButton).fixedSize()
-                    }
+                    .accessibilityLabel("Choose a dance")
                 }
             }
             VStack(alignment: .leading, spacing: 10) {
@@ -309,25 +328,34 @@ struct PanelView: View {
                     }
                 }
             }
-            HStack(spacing: 8) {
-                Button {
-                    let paused = !model.paused
-                    model.actions?.setPaused(paused); model.paused = paused
-                } label: {
-                    Label(model.paused ? "Keep dancing" : "Pause dancing", systemImage: model.paused ? "play.fill" : "pause.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(maxWidth: .infinity).frame(height: 42)
-                        .foregroundColor(.white)
-                        .background(Studio.accent, in: RoundedRectangle(cornerRadius: 11))
-                }.buttonStyle(PressStyle())
-                SmallButton(symbol: "dock.rectangle", label: "Return to Dock") { model.actions?.snapToDock() }
-                SmallButton(symbol: model.hidden ? "eye" : "eye.slash", label: model.hidden ? "Show companions" : "Hide companions") {
-                    let hidden = !model.hidden
-                    model.actions?.setHidden(hidden); model.hidden = hidden
-                }
-            }
         }
         .padding(22)
+    }
+
+    private var danceLabel: String {
+        let id = character.realistic ? model.danceId : model.moveId
+        if id == "shuffle" { return "Shuffle all dances" }
+        return character.realistic ? (Dances.find(id)?.name ?? "Easy groove") : (Moves.named(id)?.name ?? "Shuffle")
+    }
+
+    private var transport: some View {
+        HStack(spacing: 8) {
+            Button {
+                let paused = !model.paused
+                model.actions?.setPaused(paused); model.paused = paused
+            } label: {
+                Label(model.paused ? "Keep dancing" : "Pause dancing", systemImage: model.paused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(maxWidth: .infinity).frame(height: 42)
+                    .foregroundColor(.white)
+                    .background(Studio.accent, in: RoundedRectangle(cornerRadius: 11))
+            }.buttonStyle(PressStyle())
+            SmallButton(symbol: "dock.rectangle", label: "Return to Dock") { model.actions?.snapToDock() }
+            SmallButton(symbol: model.hidden ? "eye" : "eye.slash", label: model.hidden ? "Show companions" : "Hide companions") {
+                let hidden = !model.hidden
+                model.actions?.setHidden(hidden); model.hidden = hidden
+            }
+        }
     }
 
     private var stage: some View {
@@ -356,7 +384,7 @@ struct PanelView: View {
                 }
                 Spacer()
                 Text(character.name).font(.system(size: 25, weight: .regular, design: .serif)).tracking(-0.7)
-                Text(model.paused ? "Taking five" : character.realistic ? character.dance : model.moveName)
+                Text(model.paused ? "Taking five" : model.moveName)
                     .font(.system(size: 10)).foregroundColor(Studio.secondary).padding(.top, 4)
                 Text("Click to say hello.\nDrag to wander.")
                     .font(.system(size: 9)).foregroundColor(Studio.secondary)
@@ -366,7 +394,7 @@ struct PanelView: View {
         .frame(height: 224)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(character.name), \(model.paused ? "paused" : character.dance)")
+        .accessibilityLabel("\(character.name), \(model.paused ? "paused" : model.moveName)")
     }
 
     private func characterButton(_ person: Companion) -> some View {
@@ -385,7 +413,7 @@ struct PanelView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(person.name).font(.system(size: 11, weight: .semibold))
                     if !classics {
-                        Text(person.dance).font(.system(size: 9)).foregroundColor(Studio.secondary)
+                        Text(person.detail).font(.system(size: 9)).foregroundColor(Studio.secondary)
                     }
                 }
                 Spacer(minLength: 0)
@@ -453,7 +481,7 @@ struct PanelView: View {
             Divider().overlay(Studio.line)
             VStack(alignment: .leading, spacing: 9) {
                 sectionLabel("The people behind the people")
-                Text("Sophia & Manuel · Renderpeople")
+                Text("Sophia, Manuel, Carla & Nathan · Renderpeople")
                     .font(.system(size: 11)).lineSpacing(5).foregroundColor(Studio.secondary)
                 HStack(spacing: 16) {
                     if model.staticRender {

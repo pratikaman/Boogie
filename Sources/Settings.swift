@@ -43,6 +43,11 @@ final class Settings {
         get { d.string(forKey: "move") ?? "shuffle" }
         set { d.set(newValue, forKey: "move") }
     }
+    /// Kept separate from the original pixel cast's move preference.
+    var danceId: String {
+        get { Dances.selection(d.string(forKey: "realisticDance") ?? "shuffle") }
+        set { d.set(Dances.selection(newValue), forKey: "realisticDance") }
+    }
     var squad: Int {
         get { let v = d.integer(forKey: "squad"); return v == 0 ? 1 : v }
         set { d.set(newValue, forKey: "squad") }

@@ -4,15 +4,20 @@ import ImageIO
 struct Companion: Identifiable {
     let id: String
     let name: String
-    let dance: String
+    let detail: String
     let realistic: Bool
 }
 
-/// The two rendered people and the original, procedural pixel cast.
+/// Scanned people and the original, procedural pixel cast.
 enum Companions {
-    static let people = [Companion(id: "sophia", name: "Sophia", dance: "Easy groove", realistic: true),
-                         Companion(id: "manuel", name: "Manuel", dance: "Easy groove", realistic: true)]
-    static let classics = Cast.roster.map { Companion(id: $0.id, name: $0.name, dance: "Pixel original", realistic: false) }
+    static let people = [
+        Companion(id: "sophia", name: "Sophia", detail: "Light layers", realistic: true),
+        Companion(id: "manuel", name: "Manuel", detail: "Grey tee", realistic: true),
+        Companion(id: "carla", name: "Carla", detail: "Tailored blazer", realistic: true),
+        Companion(id: "nathan", name: "Nathan", detail: "White tee", realistic: true)
+    ]
+    static let classics = Cast.roster.map { Companion(id: $0.id, name: $0.name, detail: "Pixel original", realistic: false) }
+    private static var portraits: [String: CGImage] = [:]
     static func find(_ id: String) -> Companion { (people + classics).first { $0.id == id } ?? people[0] }
     static func roster(for id: String) -> [Companion] { find(id).realistic ? people : classics }
     static func size(for id: String, scale: Int) -> CGSize {
@@ -23,7 +28,19 @@ enum Companions {
         find(id).realistic ? CGFloat(64 * scale) * 0.06 : CGFloat(4 * scale)
     }
     static func portrait(_ id: String) -> CGImage? {
-        if find(id).realistic { return CharacterFrames.shared.frame(id: id, phase: 9.0) }
+        if let image = portraits[id] { return image }
+        if find(id).realistic {
+            guard let image = CharacterFrames.shared.frame(id: id, phase: 9.0),
+                  let context = CGContext(data: nil, width: image.width, height: image.height,
+                                          bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+            // A standalone thumbnail avoids retaining a full atlas page for every
+            // picker tile, or displacing the playing clips on each SwiftUI update.
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            let thumbnail = context.makeImage()
+            portraits[id] = thumbnail
+            return thumbnail
+        }
         var canvas = PixelCanvas()
         let renderer = SpriteRenderer(look: Cast.look(id, fit: Wardrobe.fits[0], skin: Wardrobe.skins[1]))
         renderer.draw(Moves.disco.pose(MoveContext(beat: 0.1)), bunLag: 0, hearts: [], into: &canvas)
@@ -72,8 +89,18 @@ final class CharacterFrames {
     }
 
     func frame(id: String, phase: Double, clip name: String = "dance") -> CGImage? {
-        guard let m = manifest(id), let clip = m.clips[name] ?? m.clips["dance"], clip.count > 0 else { return nil }
+        guard phase.isFinite, let m = manifest(id), let clip = m.clips[name], clip.count > 0 else { return nil }
         let offset = Int(max(0, phase) * m.fps) % clip.count
+        return image(id: id, manifest: m, clip: clip, offset: offset)
+    }
+
+    func frame(id: String, progress: Double, clip name: String) -> CGImage? {
+        guard progress.isFinite, let m = manifest(id), let clip = m.clips[name], clip.count > 0 else { return nil }
+        let normalized = max(0, progress).truncatingRemainder(dividingBy: 1)
+        return image(id: id, manifest: m, clip: clip, offset: min(clip.count - 1, Int(normalized * Double(clip.count))))
+    }
+
+    private func image(id: String, manifest m: Manifest, clip: Manifest.Clip, offset: Int) -> CGImage? {
         let index = clip.start + offset
         let perPage = m.columns * m.rows
         let key = "\(id)/\(index / perPage)" as NSString
@@ -96,7 +123,8 @@ final class CharacterFrames {
 
 /// Both previews and desktop dancers advance using the same beat clock.
 final class CompanionPlayback {
-    func frame(id: String, beat: Double, clip: String = "dance") -> CGImage? {
-        CharacterFrames.shared.frame(id: id, phase: max(0, beat) * 60 / 118, clip: clip)
+    func frame(id: String, sample: DanceSample, duck: Int = 0) -> CGImage? {
+        CharacterFrames.shared.frame(id: id, progress: sample.progress,
+                                     clip: duck > 0 ? "duck\(duck)" : sample.routine.id)
     }
 }
