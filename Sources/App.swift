@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     private var timer: Timer?
     private let model = PanelModel()
     private let popover = NSPopover()
+    private var creator: CreatorWindowController?
     private let sensors = Sensors()
     private let crossover = Crossover()
     private var lastReadout = SensorReadout()
@@ -90,9 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     // MARK: Dancers
 
     private func rebuildDancers() {
-        windows.forEach { $0.orderOut(nil) }
-        windows = (0..<settings.squad).map { i in
-            let w = DancerWindow(index: i, characterID: characterID(for: i), renderer: renderer(for: i), scale: settings.scale)
+        windows.forEach { $0.close() }
+        falls.removeAll()
+        windows = settings.dancerIDs.enumerated().map { i, id in
+            let w = DancerWindow(index: i, characterID: id, renderer: renderer(for: i, characterID: id), scale: settings.scale)
             w.dancer.onClick = { [weak w] in w?.dancer.celebrate() }
             w.dancer.onRightClick = { [weak self, weak w] _ in
                 guard let self, let w else { return }
@@ -110,24 +112,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
         if !settings.hidden { windows.forEach { $0.orderFrontRegardless() } }
     }
 
-    private func characterID(for index: Int) -> String {
-        let roster = Companions.roster(for: settings.lookId)
-        let first = roster.firstIndex { $0.id == settings.lookId } ?? 0
-        return roster[(first + index) % roster.count].id
-    }
-
-    /// A squad cycles through the cast from the chosen dancer; Boogie's fit and skin cycle too.
-    private func renderer(for i: Int) -> SpriteRenderer {
-        let fits = Wardrobe.fits, skins = Wardrobe.skins, cast = Cast.roster
+    /// Each slot keeps its chosen character; Boogie's fit and skin cycle too.
+    private func renderer(for i: Int, characterID: String) -> SpriteRenderer {
+        let fits = Wardrobe.fits, skins = Wardrobe.skins
         let f = fits.firstIndex { $0.id == settings.fitId } ?? 0
         let s = skins.firstIndex { $0.id == settings.skinId } ?? 1
-        let c = cast.firstIndex { $0.id == settings.lookId } ?? 0
-        return SpriteRenderer(look: Cast.look(cast[(c + i) % cast.count].id,
+        return SpriteRenderer(look: Cast.look(characterID,
                                               fit: fits[(f + i) % fits.count], skin: skins[(s + 2 * i) % skins.count]))
     }
 
     private func applyWardrobe() {
-        for (i, w) in windows.enumerated() { w.dancer.renderer.look = renderer(for: i).look }
+        for (i, w) in windows.enumerated() {
+            w.dancer.renderer.look = renderer(for: i, characterID: w.dancer.characterID).look
+        }
         model.refresh(from: settings, loginEnabled: model.loginEnabled)
     }
 
@@ -135,21 +132,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     private func layout() {
         guard let screen = NSScreen.screens.first else { return }
         let scale = settings.scale
-        let size = Companions.size(for: settings.lookId, scale: scale)
         let vf = screen.visibleFrame
         let gap: CGFloat = 6
-        let n = windows.count
+        let sizes = windows.map { Companions.size(for: $0.dancer.characterID, scale: scale) }
+        let totalWidth = sizes.reduce(0) { $0 + $1.width } + CGFloat(max(0, windows.count - 1)) * gap
+        let lastOffset = totalWidth - (sizes.last?.width ?? 0)
+        var offset: CGFloat = 0
         for (i, w) in windows.enumerated() {
+            let size = sizes[i]
             let origin: CGPoint
             if let saved = settings.position(i) {
-                origin = saved
+                // Keep a saved location on its monitor, recovering disconnected displays.
+                let bounds = NSScreen.screens.first { $0.frame.contains(saved) }?.visibleFrame ?? vf
+                origin = CGPoint(x: min(max(saved.x, bounds.minX), max(bounds.minX, bounds.maxX - size.width)),
+                                 y: min(saved.y, bounds.maxY - size.height))
             } else {
-                let offset = CGFloat(i) - CGFloat(n - 1) / 2
+                let x = totalWidth <= vf.width ? vf.midX - totalWidth / 2 + offset
+                    : vf.minX + (lastOffset > 0 ? offset / lastOffset : 0) * max(0, vf.width - size.width)
                 // Each renderer reserves a transparent margin below the feet.
-                origin = CGPoint(x: (vf.midX + offset * (size.width + gap) - size.width / 2).rounded(),
+                origin = CGPoint(x: x.rounded(),
                                  y: vf.minY - Companions.footInset(for: w.dancer.characterID, scale: scale))
             }
             w.setFrame(NSRect(origin: origin, size: size), display: true)
+            offset += size.width + gap
         }
         // Anyone left hanging in the air (a saved spot above the Dock) drops.
         for i in windows.indices { release(i) }
@@ -280,8 +285,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
 
     func setLook(_ id: String) {
         settings.lookId = id
-        rebuildDancers()
+        if var lineup = settings.customLineup {
+            if !lineup.contains(settings.lookId) {
+                lineup.append(settings.lookId)
+                settings.customLineup = lineup
+                settings.clearPositions()
+                rebuildDancers()
+            }
+        } else {
+            rebuildDancers()
+        }
         model.refresh(from: settings, loginEnabled: model.loginEnabled)
+    }
+
+    func openCreator(_ id: String?) {
+        popover.performClose(nil)
+        if let creator, creator.window?.isVisible == true {
+            creator.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        creator = CreatorWindowController(dancer: id.flatMap { CustomDancerStore.shared.find($0) }, saved: { [weak self] id in
+            self?.setLook(id)
+        }, deleted: { [weak self] _ in
+            guard let self else { return }
+            if let lineup = self.settings.customLineup { self.setLineup(lineup) }
+            else { self.setLook(self.settings.lookId) }
+        })
+        creator?.showWindow(nil)
+        creator?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func setCustomMotion(_ motion: CutoutMotion) {
+        do {
+            try CustomDancerStore.shared.setMotion(motion, for: settings.lookId)
+            model.updatePreview()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Couldn’t save this motion"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
     }
 
     func setFit(_ id: String) {
@@ -306,9 +351,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     }
 
     func setSquad(_ n: Int) {
+        settings.customLineup = nil
         settings.squad = n
         settings.clearPositions()
         rebuildDancers()
+        model.refresh(from: settings, loginEnabled: model.loginEnabled)
+    }
+
+    func setLineup(_ ids: [String]) {
+        let available = Set((Companions.people + Companions.classics + Companions.customs).map(\.id))
+        let lineup = ids.filter { available.contains($0) }
+        guard !lineup.isEmpty else { return }
+        let previous = Set(settings.dancerIDs)
+        settings.customLineup = lineup
+        if let added = lineup.last(where: { !previous.contains($0) }) { settings.lookId = added }
+        else if !lineup.contains(settings.lookId) { settings.lookId = lineup[0] }
+        settings.clearPositions()
+        rebuildDancers()
+        model.refresh(from: settings, loginEnabled: model.loginEnabled)
     }
 
     func setLogin(_ enabled: Bool) {

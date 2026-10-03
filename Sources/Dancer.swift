@@ -68,7 +68,7 @@ final class DancerView: NSView {
         layer?.minificationFilter = .nearest
         layer?.contentsGravity = .resize
         layer?.backgroundColor = .clear
-        if Companions.find(characterID).realistic {
+        if Companions.find(characterID).usesImage {
             personLayer.frame = bounds
             personLayer.contentsGravity = .resize
             personLayer.magnificationFilter = .linear
@@ -111,7 +111,7 @@ final class DancerView: NSView {
             return h.age < h.life ? h : nil
         }
 
-        if Companions.find(characterID).realistic {
+        if Companions.find(characterID).usesImage {
             renderPerson(now: now, choreo: choreo, ambience: ambience)
             return
         }
@@ -124,7 +124,11 @@ final class DancerView: NSView {
     }
 
     private func renderPerson(now: TimeInterval, choreo: Choreographer, ambience: Ambience) {
-        let frame = playback.frame(id: characterID, sample: choreo.dance(now: now), duck: ambience.duck)
+        let custom = CustomDancerStore.shared.find(characterID)
+        let frame = custom != nil ? (custom?.isAnimated == true
+            ? CustomDancerStore.shared.frame(characterID, beat: choreo.beat(now: now), duck: ambience.duck)
+            : CustomDancerStore.shared.image(characterID))
+            : playback.frame(id: characterID, sample: choreo.dance(now: now), duck: ambience.duck)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         currentImage = frame
@@ -146,6 +150,10 @@ final class DancerView: NSView {
         personLayer.position = CGPoint(x: bounds.midX, y: feet)
         var transform = CGAffineTransform(translationX: 0, y: jump)
         transform = transform.rotated(by: lean).scaledBy(x: mirrored ? -1 : 1, y: stretch)
+        if let custom, !custom.isAnimated {
+            transform = CutoutAnimation.transform(motion: custom.motion, beat: choreo.beat(now: now), size: bounds.size,
+                                                   duck: ambience.duck).concatenating(transform)
+        }
         personLayer.setAffineTransform(transform)
         // A subtle evening halo, plus the same click hearts and landing dust.
         personLayer.shadowColor = NSColor(calibratedRed: 0.88, green: 0.61, blue: 0.35, alpha: 1).cgColor
@@ -228,7 +236,7 @@ final class DancerView: NSView {
         guard dragOrigin == nil, let window, let image = currentImage else { return }
         let point = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
         guard bounds.contains(point) else { window.ignoresMouseEvents = true; return }
-        let local = Companions.find(characterID).realistic ? personLayer.convert(point, from: layer) : point
+        let local = Companions.find(characterID).usesImage ? personLayer.convert(point, from: layer) : point
         let x = Int(local.x / bounds.width * CGFloat(image.width))
         let y = Int((1 - local.y / bounds.height) * CGFloat(image.height))
         guard x >= 0, x < image.width, y >= 0, y < image.height,

@@ -49,8 +49,29 @@ final class Settings {
         set { d.set(Dances.selection(newValue), forKey: "realisticDance") }
     }
     var squad: Int {
-        get { let v = d.integer(forKey: "squad"); return v == 0 ? 1 : v }
-        set { d.set(newValue, forKey: "squad") }
+        get { max(1, d.integer(forKey: "squad")) }
+        set { d.set(max(1, newValue), forKey: "squad") }
+    }
+
+    /// An explicit lineup can mix casts and repeat dancers. Nil uses the presets.
+    var customLineup: [String]? {
+        get {
+            guard let saved = d.stringArray(forKey: "customLineup") else { return nil }
+            let available = Set((Companions.people + Companions.classics + Companions.customs).map(\.id))
+            let remaining = saved.filter { available.contains($0) }
+            return remaining.isEmpty ? [lookId] : remaining
+        }
+        set {
+            if let newValue { d.set(newValue, forKey: "customLineup") }
+            else { d.removeObject(forKey: "customLineup") }
+        }
+    }
+
+    var dancerIDs: [String] {
+        if let customLineup { return customLineup }
+        let roster = Companions.roster(for: lookId)
+        let first = roster.firstIndex { $0.id == lookId } ?? 0
+        return (0..<squad).map { roster[(first + $0) % roster.count].id }
     }
 
     // Sensor crossovers.
@@ -89,6 +110,8 @@ final class Settings {
     }
 
     func clearPositions() {
-        for i in 0..<8 { d.removeObject(forKey: "pos.\(i)") }
+        for key in d.dictionaryRepresentation().keys where key.hasPrefix("pos.") {
+            d.removeObject(forKey: key)
+        }
     }
 }

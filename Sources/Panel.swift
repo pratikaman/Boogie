@@ -29,11 +29,14 @@ protocol PanelActions: AnyObject {
     func setBPM(_ bpm: Int)
     func setScale(_ scale: Int)
     func setLook(_ id: String)
+    func openCreator(_ id: String?)
+    func setCustomMotion(_ motion: CutoutMotion)
     func setFit(_ id: String)
     func setSkin(_ id: String)
     func setDance(_ id: String)
     func setMove(_ id: String)
     func setSquad(_ n: Int)
+    func setLineup(_ ids: [String])
     func setLogin(_ enabled: Bool)
     func snapToDock()
     func quit()
@@ -60,6 +63,8 @@ final class PanelModel: ObservableObject {
     @Published var moveId = "shuffle"
     @Published var danceId = "shuffle"
     @Published var squad = 1
+    @Published var customCompany = false
+    @Published var lineup = ["sophia"]
     @Published var loginEnabled = false
     @Published var moveName = ""
     @Published var preview: CGImage?
@@ -99,7 +104,9 @@ final class PanelModel: ObservableObject {
         skinId = s.skinId
         moveId = s.moveId
         danceId = s.danceId
-        squad = s.squad
+        lineup = s.dancerIDs
+        squad = lineup.count
+        customCompany = s.customLineup != nil
         self.loginEnabled = loginEnabled
         renderer.look = Cast.look(s.lookId, fit: Wardrobe.fit(s.fitId), skin: Wardrobe.skin(s.skinId))
         moveName = choreo?.currentMoveName ?? ""
@@ -153,7 +160,8 @@ final class PanelModel: ObservableObject {
         renderer.look = Cast.look(lookId, fit: Wardrobe.fit(fitId), skin: Wardrobe.skin(skinId))
         if choreo == nil {
             preview = Companions.portrait(lookId)
-            moveName = Companions.find(lookId).realistic ? (Dances.find(danceId)?.name ?? Dances.all[0].name) : Moves.disco.name
+            moveName = CustomDancerStore.shared.find(lookId)?.motionName
+                ?? (Companions.find(lookId).realistic ? (Dances.find(danceId)?.name ?? Dances.all[0].name) : Moves.disco.name)
         } else { tick() }
     }
 
@@ -171,6 +179,11 @@ final class PanelModel: ObservableObject {
             surfing = a.surfDir != 0
             ducking = a.duck
             if a.duck > 0 { pose = Moves.duck(stage: a.duck) } else if a.surfDir != 0 { pose = Moves.surf(dir: a.surfDir) }
+        }
+        if let custom = CustomDancerStore.shared.find(lookId) {
+            preview = CustomDancerStore.shared.frame(lookId, beat: choreo.beat(now: now), duck: ducking)
+            moveName = custom.motionName
+            return
         }
         if Companions.find(lookId).realistic {
             let sample = choreo.dance(now: now)
@@ -190,14 +203,17 @@ final class PanelModel: ObservableObject {
 
 struct PanelView: View {
     @ObservedObject var model: PanelModel
+    @ObservedObject private var customStore = CustomDancerStore.shared
     @State private var preferences = false
 
     init(model: PanelModel, showPreferences: Bool = false) {
         self.model = model
         _preferences = State(initialValue: showPreferences)
-        _classics = State(initialValue: !Companions.find(model.lookId).realistic)
+        _classics = State(initialValue: !Companions.find(model.lookId).usesImage)
+        _displayedLookId = State(initialValue: model.lookId)
     }
     @State private var classics = false
+    @State private var displayedLookId: String
     private var character: Companion { Companions.find(model.lookId) }
 
     var body: some View {
@@ -242,13 +258,19 @@ struct PanelView: View {
         .foregroundColor(Studio.ink)
         .background(Studio.paper)
         .preferredColorScheme(.light)
+        .onReceive(model.$lookId) { id in
+            guard id != displayedLookId else { return }
+            displayedLookId = id
+            classics = !Companions.find(id).usesImage
+        }
     }
 
     private var companionPage: some View {
         VStack(alignment: .leading, spacing: 18) {
             stage
+            companyControls
             HStack {
-                sectionLabel("Choose your company")
+                sectionLabel(model.customCompany ? "Choose your dancers" : "Choose your company")
                 Spacer()
                 Button(classics ? "Back to people" : "Pixel classics") {
                     withAnimation(.easeInOut(duration: 0.18)) { classics.toggle() }
@@ -261,15 +283,47 @@ struct PanelView: View {
                     characterButton(person)
                 }
             }
+            if !customStore.dancers.isEmpty {
+                sectionLabel("My dancers")
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 2), spacing: 8) {
+                    ForEach(Companions.customs) { person in characterButton(person) }
+                }
+            }
+            if model.customCompany { lineupControls }
+            Button { model.actions?.openCreator(nil) } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "person.crop.rectangle.badge.plus").font(.system(size: 18))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Create a dancer").font(.system(size: 12, weight: .semibold))
+                        Text("Your likeness, brought to life.").font(.system(size: 10)).foregroundColor(Studio.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "plus").font(.system(size: 12))
+                }
+                .padding(12).foregroundColor(Studio.accent)
+                .background(Studio.surface, in: RoundedRectangle(cornerRadius: 10))
+            }.buttonStyle(PressStyle())
+            if character.custom {
+                Button("Edit \(character.name)…") { model.actions?.openCreator(character.id) }
+                    .font(.system(size: 11)).buttonStyle(.plain).foregroundColor(Studio.accent)
+            }
             HStack {
-                sectionLabel("Dance")
+                sectionLabel(character.custom ? "Motion" : "Dance")
                 Spacer()
                 if model.staticRender {
                     Label(danceLabel, systemImage: "chevron.down")
                         .font(.system(size: 11, weight: .medium))
                 } else {
                     Menu {
-                        if character.realistic {
+                        if customStore.find(model.lookId)?.generatedDance != nil {
+                            Text(customStore.find(model.lookId)?.generatedDance?.isVideo == true ? "Video dance · follows your tempo" : "Photo groove · 8 poses")
+                        } else if character.custom {
+                            ForEach(CutoutMotion.allCases) { motion in
+                                Button(customStore.find(model.lookId)?.avatar == nil ? motion.name : motion.danceName) {
+                                    model.actions?.setCustomMotion(motion)
+                                }
+                            }
+                        } else if character.realistic {
                             Picker("Dance", selection: Binding(get: { model.danceId }, set: {
                                 model.actions?.setDance($0); model.danceId = $0
                             })) {
@@ -306,24 +360,12 @@ struct PanelView: View {
                     }
                 }
             }
-            HStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 8) {
-                    sectionLabel("Size")
-                    HStack(spacing: 4) {
-                        ForEach([("S", 3), ("M", 5), ("L", 7), ("XL", 9)], id: \.1) { size in
-                            Choice(title: size.0, selected: model.scale == size.1) {
-                                model.actions?.setScale(size.1); model.scale = size.1
-                            }
-                        }
-                    }
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    sectionLabel("Company")
-                    HStack(spacing: 4) {
-                        ForEach(1...3, id: \.self) { n in
-                            Choice(title: ["Solo", "Duo", "Trio"][n - 1], selected: model.squad == n) {
-                                model.actions?.setSquad(n); model.squad = n
-                            }
+            VStack(alignment: .leading, spacing: 8) {
+                sectionLabel("Size")
+                HStack(spacing: 4) {
+                    ForEach([("S", 3), ("M", 5), ("L", 7), ("XL", 9)], id: \.1) { size in
+                        Choice(title: size.0, selected: model.scale == size.1) {
+                            model.actions?.setScale(size.1); model.scale = size.1
                         }
                     }
                 }
@@ -332,7 +374,75 @@ struct PanelView: View {
         .padding(22)
     }
 
+    private var companyControls: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                sectionLabel("Company")
+                Spacer()
+                Text("\(model.squad) \(model.squad == 1 ? "dancer" : "dancers")")
+                    .font(.system(size: 11, weight: .medium)).foregroundColor(Studio.secondary)
+            }
+            HStack(spacing: 5) {
+                ForEach(1...3, id: \.self) { n in
+                    Choice(title: ["Solo", "Duo", "Trio"][n - 1], selected: !model.customCompany && model.squad == n) {
+                        model.actions?.setSquad(n)
+                    }
+                }
+                Choice(title: "Custom", selected: model.customCompany) {
+                    model.actions?.setLineup(model.lineup)
+                }
+            }
+            Text(model.customCompany ? "Select dancers below. Add copies with + in your lineup."
+                 : "Groups cycle through the cast. Choose Custom to pick everyone.")
+                .font(.system(size: 10)).foregroundColor(Studio.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var lineupControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionLabel("Your lineup")
+            ForEach(lineupMembers) { person in
+                HStack(spacing: 10) {
+                    Button {
+                        model.actions?.setLook(person.id)
+                    } label: {
+                        HStack(spacing: 8) {
+                            if let image = Companions.portrait(person.id) {
+                                Image(decorative: image, scale: 1).resizable()
+                                    .interpolation(person.usesImage ? .high : .none)
+                                    .scaledToFit().frame(width: 24, height: 32)
+                            }
+                            Text(person.name).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                            Spacer(minLength: 0)
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityLabel("Preview \(person.name)")
+                    Button {
+                        var ids = model.lineup
+                        if let i = ids.lastIndex(of: person.id) { ids.remove(at: i) }
+                        model.actions?.setLineup(ids)
+                    } label: { Image(systemName: "minus").frame(width: 26, height: 28) }
+                        .buttonStyle(.plain).disabled(model.lineup.count == 1)
+                        .accessibilityLabel("Remove one \(person.name)")
+                    Text("\(model.lineup.filter { $0 == person.id }.count)")
+                        .font(.system(size: 12, weight: .medium, design: .monospaced)).frame(minWidth: 20)
+                    Button {
+                        model.actions?.setLineup(model.lineup + [person.id])
+                    } label: { Image(systemName: "plus").frame(width: 26, height: 28) }
+                        .buttonStyle(.plain).accessibilityLabel("Add one \(person.name)")
+                }
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Studio.surface, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    private var lineupMembers: [Companion] {
+        var seen = Set<String>()
+        return model.lineup.filter { seen.insert($0).inserted }.map { Companions.find($0) }
+    }
+
     private var danceLabel: String {
+        if let custom = customStore.find(model.lookId) { return custom.motionName }
         let id = character.realistic ? model.danceId : model.moveId
         if id == "shuffle" { return "Shuffle all dances" }
         return character.realistic ? (Dances.find(id)?.name ?? "Easy groove") : (Moves.named(id)?.name ?? "Shuffle")
@@ -367,8 +477,8 @@ struct PanelView: View {
                 .blur(radius: 6).offset(x: 36, y: -23)
             if let img = model.preview {
                 Image(decorative: img, scale: 1)
-                    .resizable().interpolation(character.realistic ? .high : .none)
-                    .scaledToFit().frame(width: character.realistic ? 175 : 140, height: 204)
+                    .resizable().interpolation(character.usesImage ? .high : .none)
+                    .scaledToFit().frame(width: character.usesImage ? 175 : 140, height: 204)
                     .offset(x: 35, y: -13)
                     .opacity(model.hidden ? 0.35 : 1)
             } else {
@@ -384,6 +494,7 @@ struct PanelView: View {
                 }
                 Spacer()
                 Text(character.name).font(.system(size: 25, weight: .regular, design: .serif)).tracking(-0.7)
+                    .lineLimit(1).frame(maxWidth: 190, alignment: .leading)
                 Text(model.paused ? "Taking five" : model.moveName)
                     .font(.system(size: 10)).foregroundColor(Studio.secondary).padding(.top, 4)
                 Text("Click to say hello.\nDrag to wander.")
@@ -398,26 +509,29 @@ struct PanelView: View {
     }
 
     private func characterButton(_ person: Companion) -> some View {
-        let selected = model.lookId == person.id
+        let selected = model.customCompany ? model.lineup.contains(person.id) : model.lookId == person.id
         return Button {
-            model.actions?.setLook(person.id)
-            model.lookId = person.id
-            model.updatePreview()
+            if model.customCompany {
+                let ids = selected ? model.lineup.filter { $0 != person.id } : model.lineup + [person.id]
+                model.actions?.setLineup(ids)
+            } else {
+                model.actions?.setLook(person.id)
+            }
         } label: {
             HStack(spacing: 6) {
                 if let image = Companions.portrait(person.id) {
                     Image(decorative: image, scale: 1).resizable()
-                        .interpolation(person.realistic ? .high : .none)
+                        .interpolation(person.usesImage ? .high : .none)
                         .scaledToFit().frame(width: 37, height: 58)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(person.name).font(.system(size: 11, weight: .semibold))
-                    if !classics {
+                    Text(person.name).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+                    if !classics || person.custom {
                         Text(person.detail).font(.system(size: 9)).foregroundColor(Studio.secondary)
                     }
                 }
                 Spacer(minLength: 0)
-                if selected && !classics {
+                if selected {
                     Image(systemName: "checkmark.circle.fill").font(.system(size: 12)).foregroundColor(Studio.accent)
                 }
             }
@@ -426,6 +540,7 @@ struct PanelView: View {
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Studio.accent.opacity(0.65) : .clear))
         }
         .buttonStyle(PressStyle())
+        .disabled(model.customCompany && selected && Set(model.lineup).count == 1)
         .accessibilityLabel(person.name).accessibilityValue(selected ? "Selected" : "")
     }
 
@@ -548,7 +663,7 @@ struct PanelView: View {
     }
 }
 
-private struct UnevenArch: Shape {
+struct UnevenArch: Shape {
     func path(in r: CGRect) -> Path {
         Path { p in
             p.move(to: CGPoint(x: r.minX, y: r.maxY))

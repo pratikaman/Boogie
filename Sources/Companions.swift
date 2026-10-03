@@ -6,6 +6,8 @@ struct Companion: Identifiable {
     let name: String
     let detail: String
     let realistic: Bool
+    var custom = false
+    var usesImage: Bool { realistic || custom }
 }
 
 /// Scanned people and the original, procedural pixel cast.
@@ -18,16 +20,23 @@ enum Companions {
     ]
     static let classics = Cast.roster.map { Companion(id: $0.id, name: $0.name, detail: "Pixel original", realistic: false) }
     private static var portraits: [String: CGImage] = [:]
-    static func find(_ id: String) -> Companion { (people + classics).first { $0.id == id } ?? people[0] }
-    static func roster(for id: String) -> [Companion] { find(id).realistic ? people : classics }
+    static var customs: [Companion] {
+        CustomDancerStore.shared.dancers.map { Companion(id: $0.id, name: $0.name, detail: $0.generatedDance != nil ? "Photo likeness" : ($0.avatar == nil ? "Photo cutout" : "3D avatar"), realistic: false, custom: true) }
+    }
+    static func find(_ id: String) -> Companion { (people + classics + customs).first { $0.id == id } ?? people[0] }
+    static func roster(for id: String) -> [Companion] {
+        let person = find(id)
+        return person.custom ? customs : person.realistic ? people : classics
+    }
     static func size(for id: String, scale: Int) -> CGSize {
-        find(id).realistic ? CGSize(width: 48 * scale, height: 64 * scale)
+        find(id).usesImage ? CGSize(width: 48 * scale, height: 64 * scale)
                           : CGSize(width: PixelCanvas.width * scale, height: PixelCanvas.height * scale)
     }
     static func footInset(for id: String, scale: Int) -> CGFloat {
-        find(id).realistic ? CGFloat(64 * scale) * 0.06 : CGFloat(4 * scale)
+        find(id).usesImage ? CGFloat(64 * scale) * 0.06 : CGFloat(4 * scale)
     }
     static func portrait(_ id: String) -> CGImage? {
+        if find(id).custom { return CustomDancerStore.shared.image(id) }
         if let image = portraits[id] { return image }
         if find(id).realistic {
             guard let image = CharacterFrames.shared.frame(id: id, phase: 9.0),
