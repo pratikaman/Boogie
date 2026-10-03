@@ -1,0 +1,33 @@
+{
+  "width": 384,
+  "height": 512,
+  "fps": 20,
+  "clips": {
+    "dance": {
+      "start": 0,
+      "count": 240
+    },
+    "duck1": {
+      "start": 240,
+      "count": 1
+    },
+    "duck2": {
+      "start": 241,
+      "count": 1
+    },
+    "duck3": {
+      "start": 242,
+      "count": 1
+    },
+    "high-kicks": {
+      "start": 243,
+      "count": 160
+    },
+    "step-dip": {
+      "start": 403,
+      "count": 160
+    }
+  },
+  "columns": 4,
+  "rows": 4
+}

@@ -104,24 +104,25 @@ func cast() {
     write(ctx.makeImage()!, "cast.png")
 }
 
-// Icon: rounded dark tile with the dancer mid-disco.
+// The warm studio wordmark, also used by the native control panel.
 func icon() {
     let size = 1024
     let ctx = context(w: size, h: size)
-    let radius = CGFloat(size) * 0.22
-    let path = CGPath(roundedRect: CGRect(x: 0, y: 0, width: size, height: size), cornerWidth: radius, cornerHeight: radius, transform: nil)
-    ctx.addPath(path)
-    ctx.setFillColor(bg)
+    ctx.setShouldAntialias(true)
+    let rect = CGRect(x: 0, y: 0, width: size, height: size)
+    ctx.addPath(CGPath(roundedRect: rect, cornerWidth: 224, cornerHeight: 224, transform: nil))
+    ctx.setFillColor(CGColor(red: 0.969, green: 0.953, blue: 0.925, alpha: 1))
     ctx.fillPath()
-    let renderer = SpriteRenderer(fit: Wardrobe.fits[0], skin: Wardrobe.skins[1])
-    var pose = Moves.disco.pose(MoveContext(beat: 0.1))
-    pose.dx = 0
-    let hearts = [Heart(x: 6, y: 6, vx: 0, vy: 0, age: 0, life: 1, color: 0xFF4F8B),
-                  Heart(x: 27, y: 11, vx: 0, vy: 0, age: 0.3, life: 1, color: 0xFF7AB8)]
-    let img = frame(renderer, pose, hearts: hearts)
-    let scale = 26
-    let px = S * scale
-    ctx.draw(img, in: CGRect(x: (size - px) / 2, y: (size - px) / 2 - 20, width: px, height: px))
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+    let font = NSFont(name: "Georgia-Bold", size: 780) ?? NSFont.systemFont(ofSize: 780, weight: .bold)
+    let text = NSAttributedString(string: "b", attributes: [
+        .font: font, .foregroundColor: NSColor(calibratedRed: 0.64, green: 0.31, blue: 0.21, alpha: 1)
+    ])
+    text.draw(at: CGPoint(x: 210, y: 100))
+    NSGraphicsContext.restoreGraphicsState()
+    ctx.setFillColor(CGColor(red: 0.36, green: 0.45, blue: 0.35, alpha: 1))
+    ctx.fillEllipse(in: CGRect(x: 731, y: 214, width: 92, height: 92))
     write(ctx.makeImage()!, "icon.png")
 }
 

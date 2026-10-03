@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Theme ("Club Boogie": black-light purple, neon pink, a touch of cyan)
+// MARK: - Warm studio palette
 
 extension Color {
     init(hex: UInt32) {
@@ -11,24 +11,14 @@ extension Color {
     }
 }
 
-enum Club {
-    static let bg = Color(hex: 0x0A0710)
-    static let card = Color(hex: 0x160F20)
-    static let stroke = Color.white.opacity(0.07)
-    static let pink = Color(hex: 0xFF2E9A)
-    static let cyan = Color(hex: 0x00E5FF)
-    static let amber = Color(hex: 0xFFB020)
-    static let red = Color(hex: 0xFF3B3B)
-    static let dim = Color.white.opacity(0.55)
-    static let faint = Color.white.opacity(0.35)
-}
-
-extension View {
-    /// Neon-tube glow.
-    func neon(_ c: Color, strength: Double = 1) -> some View {
-        self.shadow(color: c.opacity(0.9 * strength), radius: 5)
-            .shadow(color: c.opacity(0.45 * strength), radius: 14)
-    }
+enum Studio {
+    static let paper = Color(hex: 0xF7F3EC)
+    static let surface = Color(hex: 0xEDE7DC)
+    static let ink = Color(hex: 0x312C27)
+    static let secondary = Color(hex: 0x796F64)
+    static let accent = Color(hex: 0xA44F36)
+    static let line = Color(hex: 0xDCD4C8)
+    static let sage = Color(hex: 0x5D7258)
 }
 
 // MARK: - Actions the panel can trigger
@@ -41,6 +31,7 @@ protocol PanelActions: AnyObject {
     func setLook(_ id: String)
     func setFit(_ id: String)
     func setSkin(_ id: String)
+    func setDance(_ id: String)
     func setMove(_ id: String)
     func setSquad(_ n: Int)
     func setLogin(_ enabled: Bool)
@@ -63,10 +54,11 @@ final class PanelModel: ObservableObject {
     @Published var hidden = false
     @Published var bpm = 118
     @Published var scale = 5
-    @Published var lookId = "boogie"
+    @Published var lookId = "sophia"
     @Published var fitId = "raver"
     @Published var skinId = "fair"
     @Published var moveId = "shuffle"
+    @Published var danceId = "shuffle"
     @Published var squad = 1
     @Published var loginEnabled = false
     @Published var moveName = ""
@@ -87,7 +79,7 @@ final class PanelModel: ObservableObject {
     @Published var hasLight = false
     @Published var calibStep = 0
     @Published var calibMessage = ""
-    /// Offscreen render: AppKit-backed controls can't be drawn, so fake them.
+    /// Full-height, deterministic layout for documentation snapshots.
     var staticRender = false
 
     weak var actions: PanelActions?
@@ -95,6 +87,7 @@ final class PanelModel: ObservableObject {
     private var renderer = SpriteRenderer(fit: Wardrobe.fits[0], skin: Wardrobe.skins[1])
     private var canvas = PixelCanvas()
     private var timer: Timer?
+    private let playback = CompanionPlayback()
 
     func refresh(from s: Settings, loginEnabled: Bool) {
         paused = s.paused
@@ -105,6 +98,7 @@ final class PanelModel: ObservableObject {
         fitId = s.fitId
         skinId = s.skinId
         moveId = s.moveId
+        danceId = s.danceId
         squad = s.squad
         self.loginEnabled = loginEnabled
         renderer.look = Cast.look(s.lookId, fit: Wardrobe.fit(s.fitId), skin: Wardrobe.skin(s.skinId))
@@ -115,18 +109,16 @@ final class PanelModel: ObservableObject {
         if let a = actions?.sensorAvailability() { hasAccel = a.accel; hasLid = a.lid; hasLight = a.light }
         calibStep = 0
         calibMessage = ""
+        updatePreview()
     }
 
     /// A populated model for offscreen rendering.
     static func sample() -> PanelModel {
         let m = PanelModel()
-        m.bpm = 118; m.moveName = "Disco"; m.tilt = 0.12; m.lid = 112; m.lux = 3
+        m.bpm = 118; m.moveName = "Easy groove"; m.tilt = 0.12; m.lid = 112; m.lux = 3
         m.hasAccel = true; m.hasLid = true; m.hasLight = true
         m.lights = true; m.surfing = true
-        var canvas = PixelCanvas()
-        m.renderer.draw(Moves.disco.pose(MoveContext(beat: 0.1)), bunLag: 0, hearts: [], into: &canvas,
-                        fx: StageFX(lights: true, beat: 0.1))
-        m.preview = canvas.cgImage()
+        m.preview = Companions.portrait(m.lookId)
         m.staticRender = true
         return m
     }
@@ -157,6 +149,14 @@ final class PanelModel: ObservableObject {
         timer = nil
     }
 
+    func updatePreview() {
+        renderer.look = Cast.look(lookId, fit: Wardrobe.fit(fitId), skin: Wardrobe.skin(skinId))
+        if choreo == nil {
+            preview = Companions.portrait(lookId)
+            moveName = Companions.find(lookId).realistic ? (Dances.find(danceId)?.name ?? Dances.all[0].name) : Moves.disco.name
+        } else { tick() }
+    }
+
     private func tick() {
         guard let choreo else { return }
         let now = Date().timeIntervalSinceReferenceDate
@@ -172,6 +172,12 @@ final class PanelModel: ObservableObject {
             ducking = a.duck
             if a.duck > 0 { pose = Moves.duck(stage: a.duck) } else if a.surfDir != 0 { pose = Moves.surf(dir: a.surfDir) }
         }
+        if Companions.find(lookId).realistic {
+            let sample = choreo.dance(now: now)
+            preview = playback.frame(id: lookId, sample: sample, duck: ducking)
+            moveName = sample.routine.name
+            return
+        }
         canvas.clear()
         renderer.draw(pose, bunLag: (prev.dy + prev.headDy) - (pose.dy + pose.headDy), hearts: [], into: &canvas,
                       fx: StageFX(lights: lights, beat: beat))
@@ -184,468 +190,419 @@ final class PanelModel: ObservableObject {
 
 struct PanelView: View {
     @ObservedObject var model: PanelModel
+    @State private var preferences = false
 
-    private let tempos: [(String, Int)] = [("Chill", 92), ("Groove", 118), ("Hype", 140), ("Rave", 172)]
-    private let sizes: [(String, Int)] = [("S", 3), ("M", 5), ("L", 7), ("XL", 9)]
+    init(model: PanelModel, showPreferences: Bool = false) {
+        self.model = model
+        _preferences = State(initialValue: showPreferences)
+        _classics = State(initialValue: !Companions.find(model.lookId).realistic)
+    }
+    @State private var classics = false
+    private var character: Companion { Companions.find(model.lookId) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            Marquee()
+        VStack(spacing: 0) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("boogie.").font(.system(size: 30, weight: .medium, design: .serif)).tracking(-1.2)
+                    Text("A little company for your desktop.")
+                        .font(.system(size: 11)).foregroundColor(Studio.secondary)
+                }
+                Spacer()
+                SmallButton(symbol: preferences ? "xmark" : "slider.horizontal.3",
+                            label: preferences ? "Back to companion" : "Preferences") {
+                    withAnimation(.easeInOut(duration: 0.18)) { preferences.toggle() }
+                }
+            }
+            .padding(22)
+            Rectangle().fill(Studio.line).frame(height: 1)
+            if preferences {
+                if model.staticRender { preferencesContent } else { preferencesPage }
+            } else if model.staticRender {
+                companionPage
+            } else {
+                ScrollView { companionPage }
+                    .frame(height: min(600, (NSScreen.main?.visibleFrame.height ?? 900) - 250))
+            }
+            if !preferences {
+                transport.padding(.horizontal, 22).padding(.top, 10).padding(.bottom, 14)
+            }
+            Rectangle().fill(Studio.line).frame(height: 1)
+            HStack {
+                Circle().fill(model.hidden ? Studio.secondary : Studio.sage).frame(width: 5, height: 5)
+                Text(model.hidden ? "Taking a little break" : "Make yourself at home")
+                    .font(.system(size: 10)).foregroundColor(Studio.secondary)
+                Spacer()
+                Button("Quit") { model.actions?.quit() }
+                    .font(.system(size: 10)).buttonStyle(.plain).foregroundColor(Studio.secondary)
+            }
+            .padding(.horizontal, 22).padding(.vertical, 13)
+        }
+        .frame(width: 380)
+        .foregroundColor(Studio.ink)
+        .background(Studio.paper)
+        .preferredColorScheme(.light)
+    }
+
+    private var companionPage: some View {
+        VStack(alignment: .leading, spacing: 18) {
             stage
-            transport
-
-            section("DANCER") {
-                HStack(spacing: 6) {
-                    ForEach(Cast.roster, id: \.id) { who in
-                        Chip(title: who.name, selected: model.lookId == who.id, color: Club.pink) {
-                            model.actions?.setLook(who.id); model.lookId = who.id
+            HStack {
+                sectionLabel("Choose your company")
+                Spacer()
+                Button(classics ? "Back to people" : "Pixel classics") {
+                    withAnimation(.easeInOut(duration: 0.18)) { classics.toggle() }
+                }
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(Studio.secondary).buttonStyle(.plain)
+            }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: classics ? 3 : 2), spacing: 8) {
+                ForEach(classics ? Companions.classics : Companions.people) { person in
+                    characterButton(person)
+                }
+            }
+            HStack {
+                sectionLabel("Dance")
+                Spacer()
+                if model.staticRender {
+                    Label(danceLabel, systemImage: "chevron.down")
+                        .font(.system(size: 11, weight: .medium))
+                } else {
+                    Menu {
+                        if character.realistic {
+                            Picker("Dance", selection: Binding(get: { model.danceId }, set: {
+                                model.actions?.setDance($0); model.danceId = $0
+                            })) {
+                                Text("Shuffle all dances").tag("shuffle")
+                                ForEach(Dances.all) { dance in Text(dance.name).tag(dance.id) }
+                            }
+                        } else {
+                            Picker("Dance", selection: Binding(get: { model.moveId }, set: {
+                                model.actions?.setMove($0); model.moveId = $0
+                            })) {
+                                Text("Shuffle").tag("shuffle")
+                                ForEach(Moves.all, id: \.id) { move in Text(move.name).tag(move.id) }
+                            }
+                        }
+                    } label: {
+                        Label(danceLabel, systemImage: "chevron.down")
+                            .font(.system(size: 11, weight: .medium))
+                    }.menuStyle(.borderlessButton).fixedSize()
+                    .accessibilityLabel("Choose a dance")
+                }
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    sectionLabel("Set the pace")
+                    Spacer()
+                    Text("\(model.bpm) BPM").font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(Studio.secondary)
+                }
+                HStack(spacing: 5) {
+                    ForEach([("Easy", 92), ("Groove", 118), ("Upbeat", 140), ("Party", 172)], id: \.1) { tempo in
+                        Choice(title: tempo.0, selected: model.bpm == tempo.1) {
+                            model.actions?.setBPM(tempo.1); model.bpm = tempo.1
                         }
                     }
                 }
             }
-
-            section("MOVE") {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
-                    Chip(title: "Shuffle", selected: model.moveId == "shuffle", color: Club.cyan) { pick(move: "shuffle") }
-                    ForEach(Moves.all, id: \.id) { m in
-                        Chip(title: m.name, selected: model.moveId == m.id, color: Club.pink) { pick(move: m.id) }
-                    }
-                }
-            }
-
-            section("TEMPO") {
-                HStack(spacing: 6) {
-                    ForEach(tempos, id: \.1) { t in
-                        Chip(title: t.0, detail: "\(t.1)", selected: model.bpm == t.1, color: Club.cyan) {
-                            model.actions?.setBPM(t.1); model.bpm = t.1
-                        }
-                    }
-                }
-            }
-
-            HStack(alignment: .top, spacing: 12) {
-                section("SIZE") {
-                    HStack(spacing: 6) {
-                        ForEach(sizes, id: \.1) { s in
-                            Chip(title: s.0, selected: model.scale == s.1, color: Club.pink) {
-                                model.actions?.setScale(s.1); model.scale = s.1
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionLabel("Size")
+                    HStack(spacing: 4) {
+                        ForEach([("S", 3), ("M", 5), ("L", 7), ("XL", 9)], id: \.1) { size in
+                            Choice(title: size.0, selected: model.scale == size.1) {
+                                model.actions?.setScale(size.1); model.scale = size.1
                             }
                         }
                     }
                 }
-                section("SQUAD") {
-                    HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionLabel("Company")
+                    HStack(spacing: 4) {
                         ForEach(1...3, id: \.self) { n in
-                            Chip(title: ["Solo", "Duo", "Trio"][n - 1], selected: model.squad == n, color: Club.pink) {
+                            Choice(title: ["Solo", "Duo", "Trio"][n - 1], selected: model.squad == n) {
                                 model.actions?.setSquad(n); model.squad = n
                             }
                         }
                     }
                 }
             }
-
-            HStack(alignment: .top, spacing: 14) {
-                section("FIT", fill: false) {
-                    HStack(spacing: 5) {
-                        ForEach(Wardrobe.fits, id: \.id) { f in
-                            Swatch(top: Color(hex: f.hair), bottom: Color(hex: f.top), selected: model.fitId == f.id) {
-                                model.actions?.setFit(f.id); model.fitId = f.id
-                            }.help(f.name)
-                        }
-                    }
-                }
-                section("SKIN", fill: false) {
-                    HStack(spacing: 5) {
-                        ForEach(Wardrobe.skins, id: \.id) { s in
-                            Swatch(top: Color(hex: s.base), bottom: Color(hex: s.base), selected: model.skinId == s.id) {
-                                model.actions?.setSkin(s.id); model.skinId = s.id
-                            }.help(s.name)
-                        }
-                    }
-                }
-            }
-            // Bruce and Jazz came dressed; only Boogie changes.
-            .opacity(model.lookId == "boogie" ? 1 : 0.35)
-
-            sensorsSection
-            footer
         }
-        .padding(14)
-        .frame(width: 320)
-        .background(Club.bg)
-        .preferredColorScheme(.dark)
+        .padding(22)
     }
 
-    private func pick(move id: String) {
-        model.actions?.setMove(id)
-        model.moveId = id
-    }
-
-    // MARK: Pieces
-
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("BOOGIE")
-                .font(.system(size: 24, weight: .black, design: .rounded)).italic()
-                .foregroundColor(Club.pink)
-                .neon(Club.pink)
-            Text("since 1998")
-                .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                .tracking(1)
-                .foregroundColor(Club.cyan)
-                .neon(Club.cyan, strength: 0.6)
-            Spacer()
-            LiveBadge(state: model.hidden ? .hidden : (model.paused ? .paused : .live))
-        }
-    }
-
-    private var stage: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 14).fill(Club.card)
-            SynthGrid().padding(.top, 70)
-            RadialGradient(colors: [Club.pink.opacity(0.32), .clear], center: .init(x: 0.5, y: 0.05), startRadius: 0, endRadius: 170)
-            if let img = model.preview {
-                Image(decorative: img, scale: 1)
-                    .interpolation(.none)
-                    .resizable()
-                    .frame(width: 144, height: 144)
-                    .offset(y: -18)
-            }
-            VStack {
-                Spacer()
-                HStack(alignment: .lastTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("NOW DANCING")
-                            .font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(2)
-                            .foregroundColor(Club.faint)
-                        Text(model.moveName)
-                            .font(.system(size: 16, weight: .black, design: .rounded))
-                            .foregroundColor(.white)
-                    }
-                    Spacer()
-                    HStack(alignment: .lastTextBaseline, spacing: 3) {
-                        Text("\(model.bpm)")
-                            .font(.system(size: 28, weight: .black, design: .rounded)).monospacedDigit()
-                            .foregroundColor(Club.cyan)
-                            .neon(Club.cyan)
-                        Text("BPM")
-                            .font(.system(size: 10, weight: .heavy, design: .monospaced))
-                            .foregroundColor(Club.faint)
-                    }
-                }
-                .padding(12)
-                .background(LinearGradient(colors: [.clear, Club.bg.opacity(0.85)], startPoint: .top, endPoint: .bottom))
-            }
-        }
-        .frame(height: 196)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Club.stroke))
+    private var danceLabel: String {
+        let id = character.realistic ? model.danceId : model.moveId
+        if id == "shuffle" { return "Shuffle all dances" }
+        return character.realistic ? (Dances.find(id)?.name ?? "Easy groove") : (Moves.named(id)?.name ?? "Shuffle")
     }
 
     private var transport: some View {
         HStack(spacing: 8) {
             Button {
-                model.actions?.setPaused(!model.paused)
-                model.paused.toggle()
+                let paused = !model.paused
+                model.actions?.setPaused(paused); model.paused = paused
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: model.paused ? "play.fill" : "pause.fill")
-                    Text(model.paused ? "Dance!" : "Take five")
-                        .font(.system(size: 14, weight: .heavy, design: .rounded))
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
-                }
-                .padding(.horizontal, 16)
-                .frame(height: 44)
-                .frame(maxWidth: .infinity)
-                .background(Capsule().fill(Club.pink.opacity(0.10)))
-                .overlay(Capsule().stroke(Club.pink, lineWidth: 1.5))
-                .foregroundColor(Club.pink)
-                .shadow(color: Club.pink.opacity(0.35), radius: 10)
-            }
-            .buttonStyle(.plain)
-
-            IconButton(symbol: "dock.rectangle", help: "Snap to Dock") { model.actions?.snapToDock() }
-            IconButton(symbol: model.hidden ? "eye" : "eye.slash", help: model.hidden ? "Show" : "Hide") {
-                model.actions?.setHidden(!model.hidden)
-                model.hidden.toggle()
+                Label(model.paused ? "Keep dancing" : "Pause dancing", systemImage: model.paused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(maxWidth: .infinity).frame(height: 42)
+                    .foregroundColor(.white)
+                    .background(Studio.accent, in: RoundedRectangle(cornerRadius: 11))
+            }.buttonStyle(PressStyle())
+            SmallButton(symbol: "dock.rectangle", label: "Return to Dock") { model.actions?.snapToDock() }
+            SmallButton(symbol: model.hidden ? "eye" : "eye.slash", label: model.hidden ? "Show companions" : "Hide companions") {
+                let hidden = !model.hidden
+                model.actions?.setHidden(hidden); model.hidden = hidden
             }
         }
     }
 
-    private var sensorsSection: some View {
-        section("SENSORS") {
-            HStack(spacing: 6) {
-                SensorCard(title: "TILT",
-                           value: model.hasAccel ? (model.tilt.map { String(format: "%+.2f g", $0) } ?? "zeroing") : "none",
-                           state: !model.hasAccel ? "no sensor" : (!model.surf ? "surf off" : (model.surfing ? "surfing!" : "surf on")),
-                           active: model.surfing, enabled: model.hasAccel) {
-                    model.surf.toggle(); model.actions?.setSurf(model.surf)
-                }
-                SensorCard(title: "LID",
-                           value: model.hasLid ? (model.lid.map { "\(Int($0))°" } ?? "…") : "none",
-                           state: !model.hasLid ? "no sensor" : (!model.duck ? "duck off" : (model.ducking > 0 ? "ducking!" : "duck on")),
-                           active: model.ducking > 0, enabled: model.hasLid) {
-                    model.duck.toggle(); model.actions?.setDuck(model.duck)
-                }
-                SensorCard(title: "LUX",
-                           value: model.hasLight ? (model.lux.map { "\(Int($0))" } ?? "…") : "none",
-                           state: !model.hasLight && model.lightsMode == "auto" ? "no sensor"
-                                : (model.lightsMode == "auto" ? (model.lights ? "dark · lit" : "auto") : (model.lightsMode == "on" ? "always on" : "off")),
-                           active: model.lights, enabled: true) {
-                    let next = ["auto": "on", "on": "off", "off": "auto"][model.lightsMode] ?? "auto"
-                    model.lightsMode = next; model.actions?.setLightsMode(next)
-                }
-            }
-            HStack(spacing: 6) {
-                Chip(title: "Re-zero tilt", selected: false, color: Club.cyan) {
-                    model.actions?.rezeroTilt(); model.calibMessage = "Level reset."
-                }
-                Chip(title: model.calibStep == 0 ? "Calibrate tilt" : "Tilt right & tap", selected: model.calibStep != 0, color: Club.cyan) {
-                    model.calibrateTapped()
-                }
-            }
-            Text(model.calibMessage.isEmpty ? "tilt = she surfs · lid down = she ducks · dark = lights on" : model.calibMessage)
-                .font(.system(size: 9, weight: .medium, design: .rounded))
-                .foregroundColor(Club.faint)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var footer: some View {
-        HStack(spacing: 10) {
-            if model.staticRender {
-                Text("Launch at login")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundColor(Club.dim)
-                Capsule().fill(Color.white.opacity(0.12)).frame(width: 26, height: 15)
-                    .overlay(Circle().fill(Color.white.opacity(0.9)).frame(width: 11, height: 11).offset(x: -5))
+    private var stage: some View {
+        ZStack(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: 16).fill(Studio.surface)
+            // An understated paper arch and grounded shadow frame the person.
+            UnevenArch().fill(Color(hex: 0xE3D9CA)).frame(width: 168, height: 192).offset(x: 32, y: -1)
+            Ellipse().fill(Studio.ink.opacity(0.10)).frame(width: 112, height: 10)
+                .blur(radius: 6).offset(x: 36, y: -23)
+            if let img = model.preview {
+                Image(decorative: img, scale: 1)
+                    .resizable().interpolation(character.realistic ? .high : .none)
+                    .scaledToFit().frame(width: character.realistic ? 175 : 140, height: 204)
+                    .offset(x: 35, y: -13)
+                    .opacity(model.hidden ? 0.35 : 1)
             } else {
-                Toggle(isOn: Binding(get: { model.loginEnabled },
-                                     set: { model.actions?.setLogin($0); model.loginEnabled = $0 })) {
-                    Text("Launch at login")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundColor(Club.dim)
-                        .fixedSize()
+                Text("Preview unavailable").font(.system(size: 11)).foregroundColor(Studio.secondary)
+                    .frame(height: 180)
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 5) {
+                    Circle().fill(model.hidden || model.paused ? Studio.secondary : Studio.sage).frame(width: 5, height: 5)
+                    Text(model.hidden ? "HIDDEN" : model.paused ? "AT EASE" : "ON YOUR DOCK")
+                        .font(.system(size: 8, weight: .semibold)).tracking(1.3)
+                    Spacer()
                 }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .tint(Club.pink)
-            }
-            Spacer()
-            Text("tap = hearts · drag = move")
-                .font(.system(size: 9, weight: .medium, design: .rounded))
-                .foregroundColor(Club.faint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            Button { model.actions?.quit() } label: {
-                Image(systemName: "power")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(Club.faint)
-                    .frame(width: 26, height: 26)
-                    .background(Circle().fill(Color.white.opacity(0.06)))
-            }
-            .buttonStyle(.plain)
-            .help("Quit Boogie")
+                Spacer()
+                Text(character.name).font(.system(size: 25, weight: .regular, design: .serif)).tracking(-0.7)
+                Text(model.paused ? "Taking five" : model.moveName)
+                    .font(.system(size: 10)).foregroundColor(Studio.secondary).padding(.top, 4)
+                Text("Click to say hello.\nDrag to wander.")
+                    .font(.system(size: 9)).foregroundColor(Studio.secondary)
+                    .lineSpacing(3).padding(.top, 15)
+            }.padding(18)
         }
-        .padding(.top, 2)
+        .frame(height: 224)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(character.name), \(model.paused ? "paused" : model.moveName)")
     }
 
-    private func section<Content: View>(_ title: String, fill: Bool = true, @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(2)
-                .foregroundColor(Club.faint)
-            content()
-        }
-        .frame(maxWidth: fill ? .infinity : nil, alignment: .leading)
-    }
-}
-
-// MARK: - Components
-
-/// Chasing cabaret bulbs.
-private struct Marquee: View {
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.14)) { ctx in
-            let phase = Int(ctx.date.timeIntervalSinceReferenceDate / 0.14) % 3
-            HStack(spacing: 0) {
-                ForEach(0..<26, id: \.self) { i in
-                    let on = (i + phase) % 3 == 0
-                    Circle()
-                        .fill(on ? Club.pink : Club.pink.opacity(0.16))
-                        .frame(width: 5, height: 5)
-                        .shadow(color: on ? Club.pink.opacity(0.9) : .clear, radius: 4)
-                        .frame(maxWidth: .infinity)
+    private func characterButton(_ person: Companion) -> some View {
+        let selected = model.lookId == person.id
+        return Button {
+            model.actions?.setLook(person.id)
+            model.lookId = person.id
+            model.updatePreview()
+        } label: {
+            HStack(spacing: 6) {
+                if let image = Companions.portrait(person.id) {
+                    Image(decorative: image, scale: 1).resizable()
+                        .interpolation(person.realistic ? .high : .none)
+                        .scaledToFit().frame(width: 37, height: 58)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(person.name).font(.system(size: 11, weight: .semibold))
+                    if !classics {
+                        Text(person.detail).font(.system(size: 9)).foregroundColor(Studio.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+                if selected && !classics {
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 12)).foregroundColor(Studio.accent)
                 }
             }
+            .padding(.horizontal, 9).frame(maxWidth: .infinity).frame(height: 64)
+            .background(selected ? Color.white.opacity(0.75) : Studio.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Studio.accent.opacity(0.65) : .clear))
         }
-        .frame(height: 8)
+        .buttonStyle(PressStyle())
+        .accessibilityLabel(person.name).accessibilityValue(selected ? "Selected" : "")
+    }
+
+    private var preferencesPage: some View {
+        ScrollView { preferencesContent }
+            .frame(height: min(567, (NSScreen.main?.visibleFrame.height ?? 900) - 180))
+    }
+
+    private var preferencesContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Make it yours.").font(.system(size: 27, design: .serif)).tracking(-0.5)
+                Text("Little details for your everyday companion.")
+                    .font(.system(size: 11)).foregroundColor(Studio.secondary)
+            }
+            settingRow("Launch at login", detail: "A familiar face when you start your day.", on: model.loginEnabled) {
+                model.actions?.setLogin(!model.loginEnabled)
+            }
+            Divider().overlay(Studio.line)
+            sectionLabel("Respond to your Mac")
+            settingRow("Follow the tilt", detail: sensorValue(model.tilt, suffix: " g", available: model.hasAccel), on: model.surf, enabled: model.hasAccel) {
+                model.surf.toggle(); model.actions?.setSurf(model.surf)
+            }
+            settingRow("Duck with the lid", detail: sensorValue(model.lid, suffix: "°", available: model.hasLid), on: model.duck, enabled: model.hasLid) {
+                model.duck.toggle(); model.actions?.setDuck(model.duck)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Evening glow").font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    Text(sensorValue(model.lux, suffix: " lux", available: model.hasLight))
+                        .font(.system(size: 10)).foregroundColor(Studio.secondary)
+                }
+                HStack(spacing: 5) {
+                    ForEach([("Auto", "auto"), ("On", "on"), ("Off", "off")], id: \.1) { mode in
+                        Choice(title: mode.0, selected: model.lightsMode == mode.1) {
+                            model.lightsMode = mode.1; model.actions?.setLightsMode(mode.1)
+                        }
+                    }
+                }
+            }
+            if model.hasAccel {
+                HStack {
+                    Button("Reset level") { model.actions?.rezeroTilt(); model.calibMessage = "Level reset." }
+                    Spacer()
+                    Button(model.calibStep == 0 ? "Calibrate tilt" : "Tilt right, then tap") { model.calibrateTapped() }
+                }.font(.system(size: 11)).buttonStyle(.plain).foregroundColor(Studio.accent)
+                if !model.calibMessage.isEmpty {
+                    Text(model.calibMessage).font(.system(size: 10)).foregroundColor(Studio.secondary)
+                }
+            }
+            if model.lookId == "boogie" { wardrobe }
+            Divider().overlay(Studio.line)
+            VStack(alignment: .leading, spacing: 9) {
+                sectionLabel("The people behind the people")
+                Text("Sophia, Manuel, Carla & Nathan · Renderpeople")
+                    .font(.system(size: 11)).lineSpacing(5).foregroundColor(Studio.secondary)
+                HStack(spacing: 16) {
+                    if model.staticRender {
+                        Text("Renderpeople ↗")
+                    } else {
+                        Link("Renderpeople ↗", destination: URL(string: "https://renderpeople.com/free-3d-people/")!)
+                    }
+                }.font(.system(size: 11)).foregroundColor(Studio.accent)
+            }
+        }.padding(22)
+    }
+
+
+    private var wardrobe: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionLabel("Boogie's wardrobe")
+            HStack {
+                ForEach(Wardrobe.fits, id: \.id) { fit in
+                    Button {
+                        model.actions?.setFit(fit.id); model.fitId = fit.id
+                    } label: {
+                        Circle().fill(Color(hex: fit.top)).frame(width: 26, height: 26)
+                            .overlay(Circle().stroke(model.fitId == fit.id ? Studio.ink : .clear, lineWidth: 2).padding(-3))
+                    }.buttonStyle(PressStyle()).help(fit.name).accessibilityLabel(fit.name)
+                }
+            }
+            HStack {
+                ForEach(Wardrobe.skins, id: \.id) { skin in
+                    Button {
+                        model.actions?.setSkin(skin.id); model.skinId = skin.id
+                    } label: {
+                        Circle().fill(Color(hex: skin.base)).frame(width: 26, height: 26)
+                            .overlay(Circle().stroke(model.skinId == skin.id ? Studio.ink : .clear, lineWidth: 2).padding(-3))
+                    }.buttonStyle(PressStyle()).help(skin.name).accessibilityLabel(skin.name)
+                }
+            }
+        }
+    }
+
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title).font(.system(size: 11, weight: .medium)).foregroundColor(Studio.secondary)
+    }
+
+    private func sensorValue(_ value: Double?, suffix: String, available: Bool) -> String {
+        guard available else { return "Not available on this Mac" }
+        guard let value else { return "Waiting for a reading" }
+        return String(format: suffix == " g" ? "%+.2f" : "%.0f", value) + suffix
+    }
+
+    private func settingRow(_ title: String, detail: String, on: Bool, enabled: Bool = true,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title).font(.system(size: 12, weight: .medium))
+                    Text(detail).font(.system(size: 10)).foregroundColor(Studio.secondary)
+                }
+                Spacer()
+                Capsule().fill(on && enabled ? Studio.sage : Studio.line).frame(width: 30, height: 18)
+                    .overlay(Circle().fill(.white).frame(width: 14, height: 14).offset(x: on && enabled ? 6 : -6))
+            }.contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.6)
+            .accessibilityLabel(title).accessibilityValue(enabled ? (on ? "On" : "Off") : "Unavailable")
     }
 }
 
-private struct LiveBadge: View {
-    enum State { case live, paused, hidden }
-    let state: State
-
-    var body: some View {
-        let (label, color) = { () -> (String, Color) in
-            switch state {
-            case .live: return ("LIVE", Club.red)
-            case .paused: return ("PAUSED", Club.amber)
-            case .hidden: return ("HIDDEN", Club.faint)
-            }
-        }()
-        TimelineView(.periodic(from: .now, by: 0.6)) { ctx in
-            let blinkOn = state != .live || Int(ctx.date.timeIntervalSinceReferenceDate / 0.6) % 2 == 0
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(color.opacity(blinkOn ? 1 : 0.25))
-                    .frame(width: 6, height: 6)
-                    .shadow(color: blinkOn ? color.opacity(0.9) : .clear, radius: 4)
-                Text(label)
-                    .font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(2)
-                    .foregroundColor(color)
-            }
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Capsule().fill(color.opacity(0.12)))
-            .overlay(Capsule().stroke(color.opacity(0.6), lineWidth: 1))
+private struct UnevenArch: Shape {
+    func path(in r: CGRect) -> Path {
+        Path { p in
+            p.move(to: CGPoint(x: r.minX, y: r.maxY))
+            p.addLine(to: CGPoint(x: r.minX, y: r.minY + r.width / 2))
+            p.addArc(center: CGPoint(x: r.midX, y: r.minY + r.width / 2), radius: r.width / 2,
+                     startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false)
+            p.addLine(to: CGPoint(x: r.maxX, y: r.maxY)); p.closeSubpath()
         }
     }
 }
 
-private struct Chip: View {
+private struct Choice: View {
     let title: String
-    var detail: String? = nil
-    let selected: Bool
-    let color: Color
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 1) {
-                Text(title)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                if let detail {
-                    Text(detail)
-                        .font(.system(size: 9, weight: .heavy, design: .monospaced))
-                        .opacity(0.7)
-                }
-            }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity)
-                .background(Capsule().fill(selected ? color.opacity(0.16) : Color.white.opacity(0.05)))
-                .overlay(Capsule().stroke(selected ? color.opacity(0.85) : Club.stroke, lineWidth: 1))
-                .foregroundColor(selected ? color : Club.dim)
-                .shadow(color: selected ? color.opacity(0.45) : .clear, radius: 6)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct Swatch: View {
-    let top: Color
-    let bottom: Color
     let selected: Bool
     let action: () -> Void
-
     var body: some View {
         Button(action: action) {
-            ZStack {
-                Circle().fill(bottom)
-                Circle().trim(from: 0, to: 0.5).fill(top).rotationEffect(.degrees(180))
-            }
-            .frame(width: 21, height: 21)
-            .overlay(Circle().stroke(selected ? Club.pink : Color.white.opacity(0.12), lineWidth: selected ? 2 : 1))
-            .shadow(color: selected ? Club.pink.opacity(0.7) : .clear, radius: 6)
-        }
-        .buttonStyle(.plain)
+            Text(title).font(.system(size: 10, weight: selected ? .semibold : .regular))
+                .foregroundColor(selected ? Studio.accent : Studio.secondary)
+                .frame(maxWidth: .infinity).frame(height: 29)
+                .background(selected ? Color.white : Studio.surface.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(selected ? Studio.line : .clear))
+        }.buttonStyle(PressStyle()).accessibilityValue(selected ? "Selected" : "")
     }
 }
 
-/// Live sensor readout; tapping toggles that crossover.
-private struct SensorCard: View {
-    let title: String
-    let value: String
-    let state: String
-    let active: Bool
-    let enabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 9, weight: .heavy, design: .monospaced)).tracking(2)
-                    .foregroundColor(Club.faint)
-                Text(value)
-                    .font(.system(size: 14, weight: .black, design: .rounded)).monospacedDigit()
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                    .foregroundColor(!enabled ? Club.faint : (active ? Club.pink : .white))
-                Text(state)
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                    .foregroundColor(active ? Club.pink : Club.dim)
-            }
-            .padding(9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Club.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(active ? Club.pink.opacity(0.8) : Club.stroke))
-            .shadow(color: active ? Club.pink.opacity(0.35) : .clear, radius: 8)
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-    }
-}
-
-private struct IconButton: View {
+private struct SmallButton: View {
     let symbol: String
-    let help: String
+    let label: String
     let action: () -> Void
-
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(Club.dim)
-                .frame(width: 44, height: 44)
-                .background(Circle().fill(Color.white.opacity(0.08)))
-                .overlay(Circle().stroke(Club.stroke))
-        }
-        .buttonStyle(.plain)
-        .help(help)
+            Image(systemName: symbol).font(.system(size: 13, weight: .medium))
+                .foregroundColor(Studio.secondary).frame(width: 40, height: 40)
+                .background(Studio.surface.opacity(0.65), in: RoundedRectangle(cornerRadius: 11))
+        }.buttonStyle(PressStyle()).help(label).accessibilityLabel(label)
     }
 }
 
-/// Synthwave floor: perspective grid fading in from the horizon.
-private struct SynthGrid: View {
-    var body: some View {
-        Canvas { ctx, size in
-            let horizon: CGFloat = 0
-            let vanish = CGPoint(x: size.width / 2, y: horizon - 40)
-            var lines = Path()
-            for k in 1...7 {
-                let f = pow(CGFloat(k) / 7, 1.8)
-                let y = horizon + (size.height - horizon) * f
-                lines.move(to: CGPoint(x: 0, y: y))
-                lines.addLine(to: CGPoint(x: size.width, y: y))
-            }
-            for k in -6...6 {
-                let x = size.width / 2 + CGFloat(k) * size.width / 7
-                lines.move(to: CGPoint(x: x, y: size.height))
-                lines.addLine(to: vanish)
-            }
-            ctx.stroke(lines, with: .color(Club.pink.opacity(0.28)), lineWidth: 1)
-            var top = Path()
-            top.move(to: CGPoint(x: 0, y: horizon + 0.5))
-            top.addLine(to: CGPoint(x: size.width, y: horizon + 0.5))
-            ctx.stroke(top, with: .color(Club.cyan.opacity(0.35)), lineWidth: 1)
-        }
-        .mask(LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .init(x: 0.5, y: 0.6)))
+private struct PressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.modifier(InteractionFeedback(pressed: configuration.isPressed))
+    }
+}
+
+private struct InteractionFeedback: ViewModifier {
+    let pressed: Bool
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func body(content: Content) -> some View {
+        content.opacity(pressed ? 0.72 : hovering ? 0.86 : 1)
+            .scaleEffect(pressed && !reduceMotion ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: pressed)
+            .animation(.easeOut(duration: 0.12), value: hovering)
+            .onHover { hovering = $0 }
     }
 }

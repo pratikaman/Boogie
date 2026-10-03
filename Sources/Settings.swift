@@ -4,7 +4,9 @@ import CoreGraphics
 /// UserDefaults-backed preferences.
 final class Settings {
     static let shared = Settings()
-    private let d = UserDefaults.standard
+    private let d: UserDefaults
+
+    init(defaults: UserDefaults = .standard) { d = defaults }
 
     var paused: Bool {
         get { d.bool(forKey: "paused") }
@@ -23,10 +25,10 @@ final class Settings {
         get { let v = d.integer(forKey: "scale"); return v == 0 ? 5 : v }
         set { d.set(newValue, forKey: "scale") }
     }
-    /// Who's dancing: boogie | bruce | jazz.
+    /// Rendered people by default; the legacy pixel cast remains selectable.
     var lookId: String {
-        get { d.string(forKey: "look") ?? "boogie" }
-        set { d.set(newValue, forKey: "look") }
+        get { Companions.find(d.string(forKey: "character") ?? "sophia").id }
+        set { d.set(newValue, forKey: "character") }
     }
     var fitId: String {
         get { d.string(forKey: "fit") ?? "raver" }
@@ -40,6 +42,11 @@ final class Settings {
     var moveId: String {
         get { d.string(forKey: "move") ?? "shuffle" }
         set { d.set(newValue, forKey: "move") }
+    }
+    /// Kept separate from the original pixel cast's move preference.
+    var danceId: String {
+        get { Dances.selection(d.string(forKey: "realisticDance") ?? "shuffle") }
+        set { d.set(Dances.selection(newValue), forKey: "realisticDance") }
     }
     var squad: Int {
         get { let v = d.integer(forKey: "squad"); return v == 0 ? 1 : v }

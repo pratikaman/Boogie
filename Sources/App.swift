@@ -4,7 +4,7 @@ import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, PanelActions {
     private var statusItem: NSStatusItem!
-    private let settings = Settings.shared
+    private let settings: Settings
     private var choreo: Choreographer!
     private var windows: [DancerWindow] = []
     private var timer: Timer?
@@ -23,8 +23,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     private static let gravity: CGFloat = 2600   // points/s²
     private static let debugSensors = ProcessInfo.processInfo.environment["BOOGIE_DEBUG_SENSORS"] != nil
 
+    init(settings: Settings = .shared) {
+        self.settings = settings
+        super.init()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        choreo = Choreographer(bpm: settings.bpm, lockedMoveId: settings.moveId == "shuffle" ? nil : settings.moveId)
+        choreo = Choreographer(bpm: settings.bpm, lockedMoveId: settings.moveId == "shuffle" ? nil : settings.moveId,
+                               danceId: settings.danceId)
         choreo.paused = settings.paused
         crossover.surfEnabled = settings.surf
         crossover.duckEnabled = settings.duck
@@ -49,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
         popover.contentViewController = hosting
         popover.behavior = .transient
         popover.animates = true
-        popover.appearance = NSAppearance(named: .darkAqua)
+        popover.appearance = NSAppearance(named: .aqua)
         popover.delegate = self
 
         rebuildDancers()
@@ -86,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     private func rebuildDancers() {
         windows.forEach { $0.orderOut(nil) }
         windows = (0..<settings.squad).map { i in
-            let w = DancerWindow(index: i, renderer: renderer(for: i), scale: settings.scale)
+            let w = DancerWindow(index: i, characterID: characterID(for: i), renderer: renderer(for: i), scale: settings.scale)
             w.dancer.onClick = { [weak w] in w?.dancer.celebrate() }
             w.dancer.onRightClick = { [weak self, weak w] _ in
                 guard let self, let w else { return }
@@ -102,6 +108,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
         }
         layout()
         if !settings.hidden { windows.forEach { $0.orderFrontRegardless() } }
+    }
+
+    private func characterID(for index: Int) -> String {
+        let roster = Companions.roster(for: settings.lookId)
+        let first = roster.firstIndex { $0.id == settings.lookId } ?? 0
+        return roster[(first + index) % roster.count].id
     }
 
     /// A squad cycles through the cast from the chosen dancer; Boogie's fit and skin cycle too.
@@ -123,7 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     private func layout() {
         guard let screen = NSScreen.screens.first else { return }
         let scale = settings.scale
-        let size = CGFloat(PixelCanvas.width * scale)
+        let size = Companions.size(for: settings.lookId, scale: scale)
         let vf = screen.visibleFrame
         let gap: CGFloat = 6
         let n = windows.count
@@ -133,11 +145,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
                 origin = saved
             } else {
                 let offset = CGFloat(i) - CGFloat(n - 1) / 2
-                // Feet are 4 sprite rows above the bottom of the canvas.
-                origin = CGPoint(x: (vf.midX + offset * (size + gap) - size / 2).rounded(),
-                                 y: vf.minY - CGFloat(4 * scale))
+                // Each renderer reserves a transparent margin below the feet.
+                origin = CGPoint(x: (vf.midX + offset * (size.width + gap) - size.width / 2).rounded(),
+                                 y: vf.minY - Companions.footInset(for: w.dancer.characterID, scale: scale))
             }
-            w.setFrame(NSRect(origin: origin, size: CGSize(width: size, height: size)), display: true)
+            w.setFrame(NSRect(origin: origin, size: size), display: true)
         }
         // Anyone left hanging in the air (a saved spot above the Dock) drops.
         for i in windows.indices { release(i) }
@@ -146,9 +158,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     // MARK: Gravity
 
     /// The window origin y at which her feet touch the Dock (or the screen bottom).
-    private func floorY(for w: NSWindow) -> CGFloat {
+    private func floorY(for w: DancerWindow) -> CGFloat {
         let screen = w.screen ?? NSScreen.screens.first
-        return (screen?.visibleFrame.minY ?? 0) - CGFloat(4 * settings.scale)
+        return (screen?.visibleFrame.minY ?? 0) - Companions.footInset(for: w.dancer.characterID, scale: settings.scale)
     }
 
     /// Let go of dancer `i`: fall if she's above the floor, otherwise settle and remember the spot.
@@ -268,7 +280,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
 
     func setLook(_ id: String) {
         settings.lookId = id
-        applyWardrobe()
+        rebuildDancers()
+        model.refresh(from: settings, loginEnabled: model.loginEnabled)
     }
 
     func setFit(_ id: String) {
@@ -284,6 +297,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, Pan
     func setMove(_ id: String) {
         settings.moveId = id
         choreo.lockedMoveId = id == "shuffle" ? nil : id
+    }
+
+    func setDance(_ id: String) {
+        settings.danceId = id
+        choreo.setDance(settings.danceId)
+        model.refresh(from: settings, loginEnabled: model.loginEnabled)
     }
 
     func setSquad(_ n: Int) {
