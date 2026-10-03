@@ -10,13 +10,13 @@ to keep you company while you work, study, or take a break.
 
 Pick a favorite. Bring the whole crew. Click someone and watch the hearts fly.
 
-## Your desktop, your dance floor
+## 💃 Your desktop, your dance floor
 
-- **Meet the crew.** Sophia, Manuel, Carla, and Nathan are ready to dance. Prefer a retro look? Try the **Pixel classics**.
-- **Invite as many as you like.** Go **Solo**, **Duo**, or **Trio**, or choose **Custom** to pick everyone yourself. Mix your favorites and use **+ / −** to add or remove copies. Boogie remembers your lineup.
-- **Find your mood.** Keep it easy, turn up the pace, or let Boogie shuffle through the dances. Make your dancers tiny or give them more room to shine.
-- **Play a little.** Click a dancer for a jump and hearts. Drag them around and watch them land back at the bottom of your screen.
-- **Take a breather.** Pause or hide everyone whenever you like. They'll be there when you're ready.
+- 👋 **Meet the crew.** Sophia, Manuel, Carla, and Nathan are ready to dance. Prefer a retro look? Try the **Pixel classics**.
+- 🎉 **Invite as many as you like.** Go **Solo**, **Duo**, or **Trio**, or choose **Custom** to pick everyone yourself. Mix your favorites and use **+ / −** to add or remove copies. Boogie remembers your lineup.
+- 🎶 **Find your mood.** Keep it easy, turn up the pace, or let Boogie shuffle through the dances. Make your dancers tiny or give them more room to shine.
+- ❤️ **Play a little.** Click a dancer for a jump and hearts. Drag them around and watch them land back at the bottom of your screen.
+- ☕ **Take a breather.** Pause or hide everyone whenever you like. They'll be there when you're ready.
 
 On supported MacBooks, the crew can also slide when you tilt your Mac, duck when
 you lower the lid, and glow when the room gets dark. Turn these on or off in **Preferences**.
@@ -28,12 +28,12 @@ you lower the lid, and glow when the room gets dark. Turn these on or off in **P
   </p>
 </details>
 
-## Get Boogie
+## 📥 Get Boogie
 
 You'll need a Mac running **macOS Ventura (13) or later**. Choose whichever
 installation method feels more comfortable.
 
-### Option 1: Let your AI assistant install it
+### 🤖 Option 1: Let your AI assistant install it
 
 Already use **Codex**, **Claude Code**, or another coding assistant that can run
 commands on your Mac? Copy and paste this prompt into it:
@@ -51,7 +51,7 @@ any local project changes. Tell me when it's ready and how to open the controls.
 Follow any installation steps your assistant shows you. Once Boogie opens,
 look for the little dancer icon in the menu bar at the top of your screen.
 
-### Option 2: Install with commands
+### 💻 Option 2: Install with commands
 
 Open **Terminal** on your Mac. You can find it by pressing **⌘ Space** and typing
 “Terminal.”
@@ -81,7 +81,7 @@ Give it a few minutes. Boogie will be installed in your home folder's
 installed and signed in on your Mac, with image generation available. The dancers
 that come with Boogie are ready to use without it.
 
-## Your first dance
+## 👣 Your first dance
 
 1. Click the **Boogie icon in the menu bar**, or right-click a dancer, to open the controls.
 2. Choose your dancers, their size, and a pace you like.
@@ -89,7 +89,7 @@ that come with Boogie are ready to use without it.
 
 Want the crew to greet you every day? Turn on **Launch at login** in **Preferences**.
 
-## Put yourself on the dance floor
+## ✨ Put yourself on the dance floor
 
 Choose **Create a dancer** and pick a clear photo of yourself. A photo showing
 your face and whole outfit works best.
